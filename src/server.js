@@ -21,6 +21,7 @@ const auth = require('./lib/auth');
 const google = require('./lib/google');
 const eps = require('./lib/payments/eps');
 const cryptomus = require('./lib/payments/cryptomus');
+const referrals = require('./lib/referrals');
 const money = require('./lib/money');
 const spam = require('./lib/antispam');
 const V = require('./lib/views');
@@ -1051,12 +1052,16 @@ app.get('/auth/google', (req, res) => {
   // is created - otherwise every new account silently becomes a worker and the
   // button lied.
   const want = req.query.want === 'merchant' ? 'merchant' : '';
+  // A referral code survives the trip to Google the same way the chosen side
+  // does, because the account does not exist until we come back.
+  const ref = String(req.query.ref || cookies(req).wrj_ref || '').trim().slice(0, 12);
   // The state lives in a short cookie and must come back unchanged, which is
   // what stops somebody sending a victim a pre-made sign-in link.
   res.setHeader('Set-Cookie', [
     `wrj_oauth=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`,
     `wrj_next=${encodeURIComponent(next)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`,
     `wrj_want=${want}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`,
+    `wrj_ref=${encodeURIComponent(ref)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000`,
   ]);
   res.redirect(google.authUrl(state));
 });
@@ -1081,6 +1086,11 @@ app.get('/auth/google/callback', async (req, res) => {
 
     // Apply the side they picked before signing in, but only on a brand new
     // account - never silently re-role somebody who already has a history.
+    if (result.created) {
+      const code = decodeURIComponent(jar.wrj_ref || '');
+      if (code) referrals.attach(result.user.id, code, req.ip);
+    }
+
     if (result.created && jar.wrj_want === 'merchant' && result.user.role !== 'admin') {
       db.prepare("UPDATE users SET role = 'merchant' WHERE id = ?").run(result.user.id);
       result.user.role = 'merchant';
@@ -1091,6 +1101,7 @@ app.get('/auth/google/callback', async (req, res) => {
       expire,
       'wrj_next=; HttpOnly; Path=/; Max-Age=0',
       'wrj_want=; HttpOnly; Path=/; Max-Age=0',
+      'wrj_ref=; HttpOnly; Path=/; Max-Age=0',
     ]);
     audit(result.user.id, result.created ? 'signup' : 'login', `user:${result.user.id}`, null, req.ip);
 
@@ -3058,6 +3069,225 @@ app.post('/admin/roles/:id/reject', need('admin'), (req, res) => {
       note + String.fromCharCode(10,10) + 'If you think this is wrong, message support.');
   audit(req.user.id, 'role_rejected', `user:${r.user_id}`, { note }, req.ip);
   back(res, '/admin/roles', 'Rejected, and they have been told why.', 'info');
+});
+
+// ======================================================================
+// REFERRALS
+// ======================================================================
+app.get('/r/:code', (req, res) => {
+  // The cookie is set and the destination is the same whether or not the code
+  // is real. Redirecting somewhere different for an unknown code would let
+  // anyone probe codes to find out which exist - the code is only checked when
+  // an account is actually created, where an invalid one simply attaches
+  // nobody.
+  res.setHeader('Set-Cookie',
+    `wrj_ref=${encodeURIComponent(String(req.params.code).slice(0, 12))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000`);
+  res.redirect('/login?want=worker');
+});
+
+app.get('/referrals', need(), (req, res) => {
+  const u = req.user;
+  const code = referrals.codeFor(u.id);
+  const link = `${(process.env.PUBLIC_URL || '').replace(/\/$/, '') || ''}/r/${code}`;
+  const s = referrals.summary(u.id);
+  const list = referrals.people(u.id);
+  const recent = referrals.recentEarnings(u.id);
+
+  const taskShare = (numSetting('referral_task_bps') / 100).toFixed(0);
+  const depositShare = (numSetting('referral_deposit_bps') / 100).toFixed(0);
+  const fee = (numSetting('commission_bps') / 100).toFixed(0);
+
+  send(req, res, {
+    title: 'Refer a friend', active: 'referrals',
+    body: `
+<div class="page-head"><div><h1>Refer a friend</h1>
+  <p class="muted">Share your link. You earn every time they do.</p></div></div>
+
+<div class="stat-row">
+  <div class="stat"><b>${s.joined}</b><span>joined with your link</span></div>
+  <div class="stat"><b>${s.active}</b><span>have earned you something</span></div>
+  <div class="stat ok"><b>${V.money(s.earned)}</b><span>earned from referrals</span></div>
+</div>
+
+<div class="card pad ref-card">
+  <h2>Your link</h2>
+  <div class="ref-link">
+    <input type="text" id="ref-link" value="${V.esc(link)}" readonly onclick="this.select()">
+    <button class="btn" type="button" id="ref-copy">Copy</button>
+  </div>
+  <p class="muted">Your code is <b class="mono">${V.esc(code)}</b>. Anyone who signs in
+     through your link is linked to you permanently, on their first account only.</p>
+</div>
+
+<div class="two">
+  <div class="card pad">
+    <h2>What you earn</h2>
+    <ul class="tick-list">
+      <li><b>${taskShare}% of our fee</b> on every task your referral completes.
+        We take ${fee}% of a task; you get ${taskShare}% of that.</li>
+      <li><b>${depositShare}% of every deposit</b> a referral you brought in adds to
+        their balance as a buyer.</li>
+    </ul>
+    <p class="fine">Both come out of what the platform earns &mdash; never out of your
+      friend's earnings or the price they pay. Nobody is worse off because you referred
+      them, which is the only version of this worth running.</p>
+  </div>
+
+  <div class="card pad">
+    <h2>The rules</h2>
+    <ul class="tick-list">
+      <li>One account per person still applies. Signing up again with your own link is
+        the fastest way to lose both accounts.</li>
+      <li>Rewards are paid when the task is <b>approved</b> or the deposit clears &mdash;
+        not when someone signs up.</li>
+      <li>Nothing is paid on an account that gets closed for fraud.</li>
+    </ul>
+  </div>
+</div>
+
+${list.length ? `<div class="card">
+  <div class="card-head"><h2>People you referred</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Name</th><th>Type</th><th>Joined</th><th>Tasks done</th><th class="right">Earned you</th></tr></thead>
+    <tbody>${list.map(p => `<tr>
+      <td>${V.esc(p.name)}</td><td>${V.esc(p.role)}</td>
+      <td class="dim">${V.ago(p.created_at)}</td><td class="num">${p.tasks}</td>
+      <td class="num right ${p.earned ? 'pos' : ''}">${V.money(p.earned)}</td>
+    </tr>`).join('')}</tbody></table></div>
+</div>` : `<div class="empty">Nobody has used your link yet. Share it and it will show here.</div>`}
+
+${recent.length ? `<div class="card">
+  <div class="card-head"><h2>Recent referral earnings</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>When</th><th>From</th><th>For</th><th class="right">Amount</th></tr></thead>
+    <tbody>${recent.map(r => `<tr>
+      <td class="dim">${V.ago(r.created_at)}</td>
+      <td>${V.esc(r.from_name)}</td>
+      <td>${r.kind === 'task' ? 'a task they completed' : 'a deposit they made'}</td>
+      <td class="num right pos">+${V.money(r.amount)}</td>
+    </tr>`).join('')}</tbody></table></div>
+</div>` : ''}`,
+  });
+});
+
+// ======================================================================
+// PUBLIC ACTIVITY AND PAYMENT PROOF
+// ======================================================================
+/* Both pages show real rows straight from the database. Nothing is generated,
+   padded or back-dated. A site that invents its own activity feed is telling
+   its first honest users a lie on the page that asks them to trust it.
+
+   Names are shortened - first name and an initial - because somebody doing
+   tasks for money has not agreed to have their full name and payout history on
+   a public page. Amounts and timings are real; identities are not the point.
+*/
+function shortName(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  if (!parts[0]) return 'Someone';
+  return parts.length > 1 ? `${parts[0]} ${parts[1].charAt(0)}.` : parts[0];
+}
+
+app.get('/activity', (req, res) => {
+  const jobs = db.prepare(`
+    SELECT j.id, j.title, j.rate, j.slots, j.slots_filled, j.created_at,
+           c.name AS category, u.name AS buyer
+    FROM jobs j LEFT JOIN categories c ON c.id = j.category_id
+    JOIN users u ON u.id = j.merchant_id
+    WHERE j.status IN ('active','completed')
+    ORDER BY j.id DESC LIMIT 40
+  `).all();
+
+  const approvals = db.prepare(`
+    SELECT s.reviewed_at, j.title, j.rate, w.name AS worker
+    FROM submissions s JOIN jobs j ON j.id = s.job_id JOIN users w ON w.id = s.worker_id
+    WHERE s.status = 'approved' ORDER BY s.id DESC LIMIT 25
+  `).all();
+
+  send(req, res, {
+    title: 'Live activity', active: 'activity', wide: true,
+    body: `${pageHead('Live activity')}
+<p class="lede">Every row here is real and comes straight from the database. Nothing on
+   this page is generated to make the site look busier than it is.</p>
+
+<div class="two">
+  <div class="card">
+    <div class="card-head"><h2>Jobs</h2><a class="link" href="/jobs">Browse open jobs</a></div>
+    ${jobs.length ? `<div class="feed-list">${jobs.map(j => {
+      const pct = Math.round((j.slots_filled / Math.max(1, j.slots)) * 100);
+      return `<a class="feed-row" href="/jobs/${j.id}">
+        <div class="feed-main">
+          <b>${V.esc(j.title)}</b>
+          <span class="dim">${V.esc(j.category || 'Task')} · by ${V.esc(shortName(j.buyer))} · ${V.ago(j.created_at)}</span>
+          <span class="bar"><i style="width:${pct}%"></i></span>
+        </div>
+        <div class="feed-side">
+          <b>${V.money(j.rate)}</b>
+          <span class="dim">${j.slots_filled} of ${j.slots}</span>
+        </div>
+      </a>`;
+    }).join('')}</div>` : '<div class="pad muted">No jobs yet.</div>'}
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Approved work</h2></div>
+    ${approvals.length ? `<div class="feed-list">${approvals.map(a => `
+      <div class="feed-row">
+        <div class="feed-main">
+          <b>${V.esc(shortName(a.worker))}</b>
+          <span class="dim">${V.esc(a.title)} · ${V.ago(a.reviewed_at)}</span>
+        </div>
+        <div class="feed-side"><b class="pos">+${V.money(a.rate)}</b></div>
+      </div>`).join('')}</div>`
+      : '<div class="pad muted">No work has been approved yet. When it is, it appears here.</div>'}
+  </div>
+</div>`,
+  });
+});
+
+app.get('/payments', (req, res) => {
+  const paid = db.prepare(`
+    SELECT w.amount, w.method, w.reviewed_at, u.name
+    FROM withdrawals w JOIN users u ON u.id = w.user_id
+    WHERE w.status = 'paid' ORDER BY w.id DESC LIMIT 50
+  `).all();
+
+  const total = db.prepare(
+    "SELECT COALESCE(SUM(amount), 0) AS n FROM withdrawals WHERE status = 'paid'"
+  ).get().n;
+  const people = db.prepare(
+    "SELECT COUNT(DISTINCT user_id) AS n FROM withdrawals WHERE status = 'paid'"
+  ).get().n;
+
+  send(req, res, {
+    title: 'Payment proof',
+    body: `${pageHead('Payment proof')}
+<p class="lede">Withdrawals we have actually paid. Straight from our records, nothing
+   added.</p>
+
+${paid.length ? `
+<div class="stat-row">
+  <div class="stat ok"><b>${V.money(total)}</b><span>paid out</span></div>
+  <div class="stat"><b>${people}</b><span>people paid</span></div>
+  <div class="stat"><b>${paid.length}</b><span>most recent shown</span></div>
+</div>
+
+<div class="card"><div class="table-wrap"><table>
+  <thead><tr><th>When</th><th>Who</th><th>Method</th><th class="right">Amount</th></tr></thead>
+  <tbody>${paid.map(p => `<tr>
+    <td class="dim">${V.ago(p.reviewed_at)}</td>
+    <td>${V.esc(shortName(p.name))}</td>
+    <td>${V.esc(p.method)}</td>
+    <td class="num right pos">${V.money(p.amount)}</td>
+  </tr>`).join('')}</tbody>
+</table></div></div>
+<p class="fine">Names are shortened. Somebody doing tasks for a living has not agreed to
+   have their full name and payout history on a public page.</p>`
+: `<div class="empty">
+    <p><b>No withdrawals have been paid yet.</b></p>
+    <p class="muted">This page fills itself as real payouts happen. We would rather show
+      an empty page than invented screenshots &mdash; you can check back.</p>
+   </div>`}`,
+  });
 });
 
 // ======================================================================

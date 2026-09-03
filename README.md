@@ -384,6 +384,48 @@ contact details without a deploy.
 
 ---
 
+## Referrals
+
+Each account gets a short code (`/r/CODE`). It rides through the Google sign-in
+in a cookie and attaches only when the account is created — a referrer that can
+be added afterwards becomes people claiming each other's accounts.
+
+**Rewards come out of the platform's commission, never out of what the worker
+earns or what the buyer paid.** Two settings control it:
+
+| Setting | Default | |
+| --- | --- | --- |
+| `referral_task_bps` | 1500 | 15% *of our fee* on a referred worker's approved task |
+| `referral_deposit_bps` | 100 | 1% of a referred buyer's deposit |
+
+Worked example on a ৳5.00 task with a 10% fee: the worker receives ৳4.50, the
+platform's fee is ৳0.50, the referrer gets ৳0.075 of that, and the platform
+keeps the rest. The worker's ৳4.50 is untouched.
+
+The alternative — taking a slice of the referred person's earnings — is not a
+reward scheme, it is a transfer. It makes the site quietly worse for the person
+doing the work and gives everybody a reason to recruit rather than to work.
+
+Paid once per source event, enforced by a unique index on `(kind, source_id)`
+rather than a check, so a retried approval cannot pay twice.
+
+`/r/CODE` redirects the same way whether the code is real or invented. Anything
+else lets a stranger probe which codes exist.
+
+---
+
+## Live activity and payment proof
+
+`/activity` and `/payments` are real rows from the database. Nothing is
+generated, padded or back-dated, and where there is nothing yet the page says so
+instead of filling the space. A site that invents its own activity feed is
+lying on the page that asks people to trust it.
+
+Names are shortened to a first name and an initial. Somebody doing tasks for
+money has not agreed to a public payout history under their full name.
+
+---
+
 ## The home page numbers
 
 Every figure is counted from the database. None is typed into a settings box,
@@ -411,6 +453,7 @@ src/lib/db.js          schema, migrations, settings
 src/lib/auth.js        sessions, admin roles, connection history, notices
 src/lib/money.js       ledger, escrow, deposits, withdrawals
 src/lib/antispam.js    every rule above
+src/lib/referrals.js   codes, attachment and rewards
 src/lib/google.js      Google sign-in, by hand, no library
 src/lib/payments/      EPS and Cryptomus
 src/lib/views.js       HTML layout and shared pieces

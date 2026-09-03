@@ -552,3 +552,34 @@ ul.tight li { margin-bottom: 2px; }
 .foot-links { flex-wrap: wrap; row-gap: 6px; }
 
 
+
+/* ========================================================== referrals */
+.ref-card { margin-bottom: 16px; }
+.ref-link { display: flex; gap: 10px; margin: 12px 0; }
+.ref-link input { font-family: var(--mono); font-size: 14px; }
+.tick-list { list-style: none; padding: 0; margin: 0 0 12px; }
+.tick-list li {
+  position: relative; padding-left: 26px; margin-bottom: 10px;
+  font-size: 14.5px; line-height: 1.6;
+}
+.tick-list li::before {
+  content: ''; position: absolute; left: 0; top: 7px;
+  width: 14px; height: 8px; border-left: 2.5px solid var(--green);
+  border-bottom: 2.5px solid var(--green); transform: rotate(-45deg);
+}
+
+/* ============================================================== feeds */
+.feed-list { display: flex; flex-direction: column; }
+.feed-row {
+  display: flex; align-items: center; gap: 16px;
+  padding: 13px 18px; border-top: 1px solid var(--line-soft); color: inherit;
+}
+.feed-row:first-child { border-top: none; }
+a.feed-row:hover { background: var(--sunk); text-decoration: none; }
+.feed-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.feed-main b { font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed-main .dim { font-size: 12.5px; }
+.feed-main .bar { margin-top: 5px; }
+.feed-side { text-align: right; flex: none; }
+.feed-side b { display: block; font-family: var(--head); font-size: 15px; }
+.feed-side .dim { font-size: 12px; }

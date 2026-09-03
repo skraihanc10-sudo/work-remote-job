@@ -127,6 +127,12 @@ function creditGatewayDeposit(depositId, providerStatus, chargedAmount, chargedC
 
     entry(dep.user_id, 'deposit', dep.amount, { type: 'deposit', id: depositId },
           `Deposit via ${dep.provider === 'manual' ? dep.method : dep.provider}`);
+
+    const referrals = require('./referrals');
+    referrals.reward({
+      kind: 'deposit', sourceId: depositId, referredId: dep.user_id, basis: dep.amount,
+    });
+
     db.exec('COMMIT');
     return { credited: true, userId: dep.user_id, amount: dep.amount };
   } catch (err) {
@@ -211,6 +217,13 @@ function payForSubmission(sub, job) {
   if (commission > 0) {
     entry(platformUserId(), 'platform_fee', commission, { type: 'submission', id: sub.id },
           `Fee from task #${sub.id}`);
+
+    // Whoever brought this worker in gets a share of our fee - not a slice of
+    // what the worker earned. Required late to avoid a circular require.
+    const referrals = require('./referrals');
+    referrals.reward({
+      kind: 'task', sourceId: sub.id, referredId: sub.worker_id, basis: commission,
+    });
   }
   return { gross: job.rate, commission, net };
 }

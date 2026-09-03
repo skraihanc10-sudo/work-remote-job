@@ -116,3 +116,30 @@
       ' to your balance.';
   });
 })();
+
+/* Copy the referral link. Falls back to selecting it, which is one keystroke
+   away, because the clipboard API is blocked in more contexts than people
+   expect. */
+(function () {
+  'use strict';
+  var btn = document.getElementById('ref-copy');
+  var input = document.getElementById('ref-link');
+  if (!btn || !input) return;
+
+  btn.addEventListener('click', function () {
+    var done = function () {
+      var was = btn.textContent;
+      btn.textContent = 'Copied';
+      setTimeout(function () { btn.textContent = was; }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(input.value).then(done).catch(function () {
+        input.select(); btn.textContent = 'Press Ctrl+C';
+      });
+    } else {
+      input.select();
+      try { document.execCommand('copy'); done(); }
+      catch (e) { btn.textContent = 'Press Ctrl+C'; }
+    }
+  });
+})();

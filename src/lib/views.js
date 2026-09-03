@@ -47,6 +47,8 @@ function nav(user, active) {
   if (!user) {
     return `
       <a href="/jobs"${active === 'jobs' ? ' class="on"' : ''}>Browse jobs</a>
+      <a href="/activity"${active === 'activity' ? ' class="on"' : ''}>Live activity</a>
+      <a href="/payments"${active === 'payments' ? ' class="on"' : ''}>Payment proof</a>
       <a href="/how-it-works"${active === 'how' ? ' class="on"' : ''}>How it works</a>
       <span class="nav-gap"></span>
       <a href="/login" class="btn btn-sm">Continue with Google</a>`;
@@ -74,6 +76,7 @@ function nav(user, active) {
       <a href="/merchant/jobs"${active === 'myjobs' ? ' class="on"' : ''}>My jobs</a>
       <a href="/merchant/review"${active === 'review' ? ' class="on"' : ''}>Review work</a>
       <a href="/wallet"${active === 'wallet' ? ' class="on"' : ''}>Wallet</a>
+      <a href="/referrals"${active === 'referrals' ? ' class="on"' : ''}>Refer</a>
       <a href="/support"${active === 'support' ? ' class="on"' : ''}>Support</a>
       <span class="nav-gap"></span>
       <a href="/account"${active === 'account' ? ' class="on"' : ''} class="who-link">${esc(user.name)}</a>
@@ -86,6 +89,7 @@ function nav(user, active) {
     <a href="/jobs"${active === 'jobs' ? ' class="on"' : ''}>Find work</a>
     <a href="/worker/tasks"${active === 'tasks' ? ' class="on"' : ''}>My tasks</a>
     <a href="/wallet"${active === 'wallet' ? ' class="on"' : ''}>Wallet</a>
+    <a href="/referrals"${active === 'referrals' ? ' class="on"' : ''}>Refer</a>
     <a href="/support"${active === 'support' ? ' class="on"' : ''}>Support</a>
     <span class="nav-gap"></span>
     <a href="/account" class="who-link">${esc(user.name)}</a>
@@ -146,6 +150,8 @@ ${body}
     <span class="foot-links">
       <a href="/about">About</a>
       <a href="/how-it-works">How it works</a>
+      <a href="/activity">Live activity</a>
+      <a href="/payments">Payment proof</a>
       <a href="/rules">Rules</a>
       <a href="/faq">Questions</a>
       <a href="/security">Security</a>

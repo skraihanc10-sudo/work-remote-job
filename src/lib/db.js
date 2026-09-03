@@ -346,6 +346,33 @@ const MIGRATIONS = [
       CREATE INDEX idx_testi_visible ON testimonials(visible, sort);
     `,
   },
+  {
+    id: 5,
+    name: 'referrals',
+    sql: `
+      ALTER TABLE users ADD COLUMN ref_code TEXT;
+      ALTER TABLE users ADD COLUMN referred_by INTEGER REFERENCES users(id);
+      CREATE UNIQUE INDEX idx_users_refcode ON users(ref_code) WHERE ref_code IS NOT NULL;
+      CREATE INDEX idx_users_referred ON users(referred_by);
+
+      -- Every referral payment, with what caused it. Kept separate from the
+      -- ledger so "what has this person earned from referrals" is one indexed
+      -- query rather than a scan of every money row they have.
+      CREATE TABLE referral_earnings (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        referrer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        referred_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        kind        TEXT NOT NULL CHECK (kind IN ('task','deposit')),
+        source_id   INTEGER,
+        basis       INTEGER NOT NULL,
+        amount      INTEGER NOT NULL,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      -- One payment per source event, so a retried approval cannot pay twice.
+      CREATE UNIQUE INDEX idx_ref_once ON referral_earnings(kind, source_id);
+      CREATE INDEX idx_ref_referrer ON referral_earnings(referrer_id, id DESC);
+    `,
+  },
 ];
 
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (
@@ -392,6 +419,13 @@ const DEFAULTS = {
   // everybody, and this changes slowly enough to set by hand.
   usd_rate: '12000',
   min_deposit: '10000',
+  // Referral rewards. Both are paid out of the platform's own commission, never
+  // out of what the worker or the buyer receives - a scheme funded by shaving
+  // somebody else's earnings is not a reward, it is a transfer.
+  // Share of our fee on a referred worker's approved task:
+  referral_task_bps: '1500',
+  // Share of a referred buyer's deposit:
+  referral_deposit_bps: '100',
 };
 
 function getSetting(key, fallback = null) {
