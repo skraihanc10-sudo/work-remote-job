@@ -7,3 +7,6 @@ data/
 .env
 .env.*
 !.env.example
+
+# curl cookie jars from local testing - these hold live session tokens
+*.jar
