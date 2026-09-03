@@ -2330,12 +2330,47 @@ app.use((err, req, res, next) => {
   }));
 });
 
+/* Shut down cleanly when the platform says to.
+
+   Every deploy stops the old container with SIGTERM. Without this the process
+   is killed, npm reports the signal as a failure, and the platform writes
+   "Deployment crashed" for what was a completely normal replacement. Two
+   problems with that: it is alarming, and it means a real crash one day is
+   indistinguishable from the noise.
+
+   Existing requests are given a moment to finish - somebody halfway through
+   approving a payment should not have it cut off - and then we exit 0, which
+   is the truth: we were asked to stop and we stopped.
+*/
+let stopping = false;
+function shutdown(signal) {
+  if (stopping) return;
+  stopping = true;
+  console.log(`
+  ${signal} received, finishing open requests...`);
+
+  const done = () => {
+    console.log('  stopped cleanly');
+    process.exit(0);
+  };
+
+  server.close(done);
+  // Do not hang forever on a slow client holding a connection open.
+  setTimeout(() => {
+    console.log('  some connections were still open, exiting anyway');
+    process.exit(0);
+  }, 8000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
 // Housekeeping: abandoned slots go back in the pool, dead sessions get swept.
 setInterval(() => {
   try { spam.releaseExpiredHolds(); auth.sweepSessions(); } catch (e) { console.error(e.message); }
 }, 60000).unref();
 
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   spam.releaseExpiredHolds();
   const on = x => (x ? 'on' : 'off');
   console.log('');

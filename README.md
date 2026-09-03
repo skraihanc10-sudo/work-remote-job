@@ -101,6 +101,15 @@ before pointing a domain at the site.
 rather than just answering — a process that is listening but cannot read its own
 data is not healthy.
 
+### "Deployment crashed" that is not a crash
+
+Every deploy stops the previous container with SIGTERM. The app catches it,
+lets open requests finish and exits 0, so a normal replacement is reported as
+what it was. Without that the process is killed, npm reports the signal as a
+failure, and the platform writes "Deployment crashed" after every single
+deploy — which is alarming, and worse, makes a real crash one day
+indistinguishable from the noise.
+
 ### A VPS
 
 ```
