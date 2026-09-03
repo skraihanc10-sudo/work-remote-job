@@ -1,5 +1,9 @@
 node_modules/
 data/
 *.log
+
+# Real settings never go in git - they hold the Google secret and the payment
+# gateway keys. The example file must, because it is the documentation.
 .env
 .env.*
+!.env.example
