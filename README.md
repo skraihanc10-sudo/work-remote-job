@@ -64,16 +64,35 @@ each deploy throws all of that away with it.
 
 ```
 DATA_DIR=/data
-PUBLIC_URL=https://your-app.up.railway.app
+PUBLIC_URL=https://your-domain
 CSRF_SECRET=(a long random string)
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
-GOOGLE_REDIRECT_URI=https://your-app.up.railway.app/auth/google/callback
+GOOGLE_REDIRECT_URI=https://your-domain/auth/google/callback
 ADMIN_EMAILS=you@gmail.com
 NODE_ENV=production
 ```
 
 Do **not** set `ALLOW_DEV_LOGIN`.
+
+### One hostname
+
+`PUBLIC_URL` is the site's only address. Everything reaching it on any other
+host is redirected there permanently.
+
+That matters more than it sounds. With a custom domain the site also answers on
+the platform's own address, and then: the Google redirect URI matches exactly
+one host, session cookies are per host, and somebody who signs in on one and
+returns on the other is simply signed out with no explanation. Search engines
+would index both.
+
+Two things are exempt. `/health`, because the platform's health check arrives on
+an internal hostname and redirecting it fails the deploy. And `/hooks/*`,
+because a gateway calling a webhook is a server rather than a browser - some
+follow redirects and some quietly do not, and a lost webhook is a lost deposit.
+
+So set `PUBLIC_URL` to the address you want people to actually use, and set it
+before pointing a domain at the site.
 
 4. Deploy, then run `npm run seed` once from the Railway shell to create the
    admin row.

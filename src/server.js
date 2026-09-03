@@ -33,6 +33,42 @@ app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(express.urlencoded({ extended: false, limit: '256kb' }));
 
+/* One site, one hostname.
+
+   Once a custom domain is added, the same site also answers on the Railway
+   address. That is a problem rather than a convenience: the Google redirect URI
+   matches exactly one host, session cookies are per host, and a person who
+   signs in on one and comes back on the other is simply signed out. Search
+   engines would also index both.
+
+   So when PUBLIC_URL names a host, everything else redirects to it.
+
+   Two exceptions. The platform's health check reaches the container on an
+   internal hostname and must not be redirected, or the deploy is marked
+   unhealthy and rolled back. And a payment gateway calling a webhook is a
+   server, not a browser - some follow redirects, some quietly do not, and a
+   lost webhook is a lost deposit.
+*/
+const CANONICAL_HOST = (() => {
+  try {
+    return process.env.PUBLIC_URL ? new URL(process.env.PUBLIC_URL).host : '';
+  } catch {
+    console.warn('PUBLIC_URL is not a valid URL, so no canonical host is enforced');
+    return '';
+  }
+})();
+
+app.use((req, res, next) => {
+  if (!CANONICAL_HOST) return next();
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  if (req.path === '/health' || req.path.startsWith('/hooks/')) return next();
+
+  const host = req.get('host');
+  if (!host || host === CANONICAL_HOST) return next();
+
+  return res.redirect(301, process.env.PUBLIC_URL.replace(/\/$/, '') + req.originalUrl);
+});
+
 /* Railway and most hosts poll this to decide whether a deploy came up. It
    touches the database on purpose: a process that is listening but cannot read
    its own data is not healthy, and saying so early is better than serving
