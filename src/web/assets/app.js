@@ -95,3 +95,24 @@
       .catch(function () { /* offline for a moment; the next tick retries */ });
   }, 6000);
 })();
+
+/* Crypto deposit: show what a USD amount becomes in the local currency before
+   anyone commits to it. The server recomputes this from the same setting - the
+   number here is a courtesy, not the source of truth. */
+(function () {
+  'use strict';
+  var input = document.getElementById('usd-input');
+  var out = document.getElementById('usd-preview');
+  if (!input || !out) return;
+
+  var rate = Number(input.dataset.rate) || 0;
+  var base = out.textContent;
+
+  input.addEventListener('input', function () {
+    var usd = parseFloat(input.value);
+    if (!isFinite(usd) || usd <= 0) { out.textContent = base; return; }
+    out.textContent = '$' + usd.toFixed(2) + ' credits about ' +
+      (usd * rate / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+      ' to your balance.';
+  });
+})();

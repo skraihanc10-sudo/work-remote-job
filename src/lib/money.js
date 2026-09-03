@@ -45,6 +45,53 @@ function history(userId, limit = 60) {
 }
 
 // ------------------------------------------------------------------ deposit
+/* Credit a gateway deposit exactly once.
+
+   Everything about this function exists to survive the two things that always
+   happen in production: the same webhook arriving three times, and a webhook
+   arriving at the same moment somebody presses the "check payment" button.
+
+   The guard is the status transition itself, inside an immediate transaction:
+   only a row still marked pending can move to approved, and only the winner of
+   that race writes a ledger entry. A replay finds nothing pending and does
+   nothing at all.
+
+   The amount credited is the one recorded on our own deposit row, decided when
+   the payment was created - never a number taken from the callback, because a
+   callback is only as trustworthy as its signature and this is the one place
+   where being wrong costs money.
+*/
+function creditGatewayDeposit(depositId, providerStatus, chargedAmount, chargedCurrency) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const dep = db.prepare("SELECT * FROM deposits WHERE id = ? AND status = 'pending'").get(depositId);
+    if (!dep) {
+      db.exec('COMMIT');
+      return { credited: false, reason: 'not pending' };
+    }
+
+    db.prepare(`UPDATE deposits SET status = 'approved', provider_status = ?,
+                charged_amount = ?, charged_currency = ?,
+                reviewed_at = datetime('now'), credited_at = datetime('now')
+                WHERE id = ?`)
+      .run(providerStatus || null, chargedAmount || null, chargedCurrency || null, depositId);
+
+    entry(dep.user_id, 'deposit', dep.amount, { type: 'deposit', id: depositId },
+          `Deposit via ${dep.provider === 'manual' ? dep.method : dep.provider}`);
+    db.exec('COMMIT');
+    return { credited: true, userId: dep.user_id, amount: dep.amount };
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+function failDeposit(depositId, providerStatus) {
+  db.prepare(`UPDATE deposits SET status = 'rejected', provider_status = ?,
+              reviewed_at = datetime('now') WHERE id = ? AND status = 'pending'`)
+    .run(providerStatus || null, depositId);
+}
+
 function creditDeposit(depositId, adminId) {
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -180,6 +227,6 @@ function settleWithdrawal(id, approve, note) {
 
 module.exports = {
   parseAmount, fmt, balance, entry, history,
-  creditDeposit, fundJob, escrowOf, escrowRemaining, payForSubmission, refundRemaining, platformUserId,
+  creditDeposit, creditGatewayDeposit, failDeposit, fundJob, escrowOf, escrowRemaining, payForSubmission, refundRemaining, platformUserId,
   requestWithdrawal, settleWithdrawal,
 };

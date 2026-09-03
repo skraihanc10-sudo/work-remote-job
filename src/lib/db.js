@@ -256,6 +256,42 @@ const MIGRATIONS = [
       CREATE INDEX idx_notices_user ON notices(user_id, seen_at, id DESC);
     `,
   },
+  {
+    id: 3,
+    name: 'gateway deposits',
+    sql: `
+      -- Which gateway a deposit came through, and the identifiers needed to ask
+      -- that gateway what really happened.
+      ALTER TABLE deposits ADD COLUMN provider TEXT NOT NULL DEFAULT 'manual';
+      ALTER TABLE deposits ADD COLUMN provider_ref TEXT;
+      ALTER TABLE deposits ADD COLUMN provider_status TEXT;
+      ALTER TABLE deposits ADD COLUMN pay_url TEXT;
+      ALTER TABLE deposits ADD COLUMN charged_amount TEXT;
+      ALTER TABLE deposits ADD COLUMN charged_currency TEXT;
+      ALTER TABLE deposits ADD COLUMN credited_at TEXT;
+      -- One gateway reference can only ever belong to one deposit. This index
+      -- is what makes a replayed webhook harmless.
+      CREATE UNIQUE INDEX idx_dep_ref ON deposits(provider, provider_ref)
+        WHERE provider_ref IS NOT NULL;
+      CREATE INDEX idx_dep_status ON deposits(status, id DESC);
+
+      -- Every callback, verified or not, kept as received. When a payment is
+      -- disputed this is the only record of what the gateway actually said.
+      CREATE TABLE gateway_events (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        provider    TEXT NOT NULL,
+        deposit_id  INTEGER REFERENCES deposits(id) ON DELETE SET NULL,
+        ref         TEXT,
+        verified    INTEGER NOT NULL DEFAULT 0,
+        status      TEXT,
+        payload     TEXT NOT NULL,
+        ip          TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_gwe_deposit ON gateway_events(deposit_id, id DESC);
+      CREATE INDEX idx_gwe_created ON gateway_events(id DESC);
+    `,
+  },
 ];
 
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (
@@ -297,6 +333,11 @@ const DEFAULTS = {
   ip_accounts_warn: '3',
   telegram_channel: '',
   telegram_support: '',
+  // Crypto is priced in USD; this converts to the site's own currency.
+  // It is a manual rate on purpose - a wrong automatic one silently mispays
+  // everybody, and this changes slowly enough to set by hand.
+  usd_rate: '12000',
+  min_deposit: '10000',
 };
 
 function getSetting(key, fallback = null) {

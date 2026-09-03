@@ -37,6 +37,7 @@ function nav(user, active) {
       <a href="/admin/money"${active === 'money' ? ' class="on"' : ''}>Money</a>
       <a href="/admin/users"${active === 'users' ? ' class="on"' : ''}>Users</a>
       <a href="/admin/connections"${active === 'connections' ? ' class="on"' : ''}>Connections</a>
+      <a href="/admin/gateway"${active === 'gateway' ? ' class="on"' : ''}>Gateway</a>
       <a href="/admin/support"${active === 'support' ? ' class="on"' : ''}>Support</a>
       <span class="nav-gap"></span>
       <span class="who">${esc(user.name)} · admin</span>

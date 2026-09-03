@@ -18,6 +18,8 @@ const multer = require('multer');
 const { db, DATA_DIR, getSetting, setSetting, numSetting, audit } = require('./lib/db');
 const auth = require('./lib/auth');
 const google = require('./lib/google');
+const eps = require('./lib/payments/eps');
+const cryptomus = require('./lib/payments/cryptomus');
 const money = require('./lib/money');
 const spam = require('./lib/antispam');
 const V = require('./lib/views');
@@ -1166,24 +1168,61 @@ app.get('/wallet', need(), (req, res) => {
   const deposits = db.prepare('SELECT * FROM deposits WHERE user_id = ? ORDER BY id DESC LIMIT 10').all(u.id);
   const withdrawals = db.prepare('SELECT * FROM withdrawals WHERE user_id = ? ORDER BY id DESC LIMIT 10').all(u.id);
 
-  const addFunds = u.role === 'merchant' ? `
+  const rate = numSetting('usd_rate');
+  const minDep = numSetting('min_deposit');
+
+  const addFunds = u.role !== 'merchant' ? '' : `
     <div class="card pad">
       <h2>Add funds</h2>
-      <p class="muted">Send the money, then record it here. An admin confirms it and your
-         balance updates &mdash; usually within a few hours.</p>
-      <form method="post" action="/wallet/deposit">
-        ${csrfField(req)}
-        <div class="row-2">
-          ${V.field({ label: 'Amount', name: 'amount', required: true, placeholder: '500.00' })}
-          ${V.field({ label: 'Method', name: 'method', type: 'select', options: [
-            { value: 'bkash', label: 'bKash' }, { value: 'nagad', label: 'Nagad' },
-            { value: 'bank', label: 'Bank transfer' }, { value: 'other', label: 'Other' }] })}
-        </div>
-        ${V.field({ label: 'Transaction reference', name: 'reference', required: true,
-          hint: 'The ID from your payment app, so it can be matched' })}
-        <button class="btn" type="submit">Record deposit</button>
-      </form>
-    </div>` : '';
+      <p class="muted">Smallest deposit is ${V.money(minDep)}. Money lands in your balance
+         only after the payment provider confirms it &mdash; never on our say-so.</p>
+
+      ${eps.configured() ? `
+      <div class="pay-option">
+        <div class="pay-head"><b>bKash, Nagad, Rocket, card</b><span class="pill s-active">instant</span></div>
+        <form method="post" action="/wallet/deposit/eps" class="pay-form">
+          ${csrfField(req)}
+          <input type="text" name="amount" placeholder="Amount in ${V.esc(getSetting('currency'))}" required inputmode="decimal">
+          <button class="btn" type="submit">Pay with EPS</button>
+        </form>
+        <span class="hint">Whole amounts only, no paisa.</span>
+      </div>` : ''}
+
+      ${cryptomus.configured() ? `
+      <div class="pay-option">
+        <div class="pay-head"><b>Crypto</b><span class="pill s-active">USDT, BTC and others</span></div>
+        <form method="post" action="/wallet/deposit/crypto" class="pay-form">
+          ${csrfField(req)}
+          <input type="number" name="usd" step="0.01" min="1" placeholder="Amount in USD" required
+                 id="usd-input" data-rate="${rate}">
+          <button class="btn" type="submit">Pay with crypto</button>
+        </form>
+        <span class="hint" id="usd-preview">Rate: $1 = ${V.money(rate)}. You are credited in
+          ${V.esc(getSetting('currency'))} at that rate.</span>
+      </div>` : ''}
+
+      ${!eps.configured() && !cryptomus.configured() ? `
+      <div class="alert alert-warn">No payment provider is switched on yet. Record a transfer below
+        and an admin will confirm it by hand.</div>` : ''}
+
+      <details class="manual">
+        <summary>Paid another way? Record it here</summary>
+        <p class="muted">Use this only if you sent money outside the site. An admin checks the
+           reference against the account before crediting anything.</p>
+        <form method="post" action="/wallet/deposit">
+          ${csrfField(req)}
+          <div class="row-2">
+            ${V.field({ label: 'Amount', name: 'amount', required: true, placeholder: '500.00' })}
+            ${V.field({ label: 'Method', name: 'method', type: 'select', options: [
+              { value: 'bkash', label: 'bKash' }, { value: 'nagad', label: 'Nagad' },
+              { value: 'bank', label: 'Bank transfer' }, { value: 'other', label: 'Other' }] })}
+          </div>
+          ${V.field({ label: 'Transaction reference', name: 'reference', required: true,
+            hint: 'The ID from your payment app, so it can be matched' })}
+          <button class="btn btn-ghost" type="submit">Record it</button>
+        </form>
+      </details>
+    </div>`;
 
   const withdraw = u.role === 'worker' ? `
     <div class="card pad">
@@ -1225,10 +1264,14 @@ app.get('/wallet', need(), (req, res) => {
 </div>
 
 ${deposits.length ? `<div class="card"><div class="card-head"><h2>Deposits</h2></div>
-  <div class="table-wrap"><table><thead><tr><th>When</th><th>Method</th><th>Reference</th><th class="right">Amount</th><th>State</th></tr></thead>
-  <tbody>${deposits.map(d => `<tr><td class="dim">${V.ago(d.created_at)}</td><td>${V.esc(d.method)}</td>
-    <td class="mono">${V.esc(d.reference || '')}</td><td class="num right">${V.money(d.amount)}</td>
-    <td>${V.statusPill(d.status)}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+  <div class="table-wrap"><table><thead><tr><th>When</th><th>Via</th><th>Reference</th><th class="right">Amount</th><th>State</th><th></th></tr></thead>
+  <tbody>${deposits.map(d => `<tr><td class="dim">${V.ago(d.created_at)}</td>
+    <td>${V.esc(d.provider === 'manual' ? d.method : d.provider)}</td>
+    <td class="mono clip">${V.esc(String(d.provider_ref || d.reference || '').slice(0, 24))}</td>
+    <td class="num right">${V.money(d.amount)}</td>
+    <td>${V.statusPill(d.status)}</td>
+    <td class="right">${d.status === 'pending' && d.pay_url
+      ? `<a class="link" href="${V.esc(d.pay_url)}">Pay</a>` : ''}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
 
 ${withdrawals.length ? `<div class="card"><div class="card-head"><h2>Withdrawals</h2></div>
   <div class="table-wrap"><table><thead><tr><th>When</th><th>Method</th><th class="right">Amount</th><th>State</th><th>Note</th></tr></thead>
@@ -1523,6 +1566,298 @@ app.post('/admin/users/:id/restore', need('admin'), (req, res) => {
     .run(Number(req.params.id));
   audit(req.user.id, 'restore', `user:${req.params.id}`, null, req.ip);
   back(res, '/admin/users', 'Restored, strikes cleared.', 'ok');
+});
+
+// ======================================================================
+// DEPOSITS THROUGH A GATEWAY
+// ======================================================================
+function baseUrl(req) {
+  return process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+}
+
+function recordEvent(provider, depositId, ref, verified, status, payload, ip) {
+  db.prepare(`INSERT INTO gateway_events (provider, deposit_id, ref, verified, status, payload, ip)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(provider, depositId || null, ref || null, verified ? 1 : 0, status || null,
+         typeof payload === 'string' ? payload.slice(0, 20000) : JSON.stringify(payload).slice(0, 20000),
+         ip || null);
+}
+
+/* Start an EPS payment: bKash, Nagad, Rocket, card, internet banking. */
+app.post('/wallet/deposit/eps', need('merchant'), active, async (req, res) => {
+  if (!eps.configured()) return fail(res, 'Card and mobile banking payments are not switched on yet.');
+
+  const amount = money.parseAmount(req.body.amount);
+  const min = numSetting('min_deposit');
+  if (!amount || amount < min) return fail(res, `The smallest deposit is ${money.fmt(min)}`);
+
+  // EPS works in whole taka; refuse anything that would round.
+  if (amount % 100 !== 0) return fail(res, 'Enter a whole amount, without paisa.');
+
+  const mtid = eps.newTransactionId();
+  const info = db.prepare(`INSERT INTO deposits (user_id, amount, method, provider, provider_ref, reference)
+                           VALUES (?, ?, ?, 'eps', ?, ?)`)
+    .run(req.user.id, amount, 'eps', mtid, mtid);
+  const depositId = Number(info.lastInsertRowid);
+
+  try {
+    const site = baseUrl(req);
+    const started = await eps.initialize({
+      orderId: depositId,
+      merchantTransactionId: mtid,
+      amount: amount / 100,
+      ip: req.ip,
+      customer: {
+        name: req.user.name,
+        email: req.user.email,
+        phone: req.user.payout_detail || '01700000000',
+        country: req.user.country === 'Bangladesh' ? 'BD' : 'BD',
+      },
+      urls: {
+        success: `${site}/wallet/deposit/eps/return?mtid=${encodeURIComponent(mtid)}`,
+        fail: `${site}/wallet/deposit/eps/return?mtid=${encodeURIComponent(mtid)}`,
+        cancel: `${site}/wallet/deposit/eps/return?mtid=${encodeURIComponent(mtid)}`,
+      },
+    });
+
+    db.prepare('UPDATE deposits SET pay_url = ? WHERE id = ?').run(started.redirectUrl, depositId);
+    audit(req.user.id, 'deposit_started', `deposit:${depositId}`, { provider: 'eps', amount }, req.ip);
+    res.redirect(started.redirectUrl);
+  } catch (err) {
+    money.failDeposit(depositId, 'init_failed');
+    recordEvent('eps', depositId, mtid, 0, 'init_failed', { error: err.message }, req.ip);
+    fail(res, `The payment could not be started: ${err.message}`);
+  }
+});
+
+/* Where EPS sends the payer's browser back to.
+
+   This proves nothing on its own - it is a URL the payer's browser was told to
+   visit, and anyone can visit it. So it does not credit anything; it asks EPS
+   what happened and shows the answer. */
+app.get('/wallet/deposit/eps/return', need(), async (req, res) => {
+  const mtid = String(req.query.mtid || '');
+  const dep = db.prepare("SELECT * FROM deposits WHERE provider = 'eps' AND provider_ref = ?").get(mtid);
+  if (!dep) return fail(res, 'That payment is not one of ours.');
+  if (dep.user_id !== req.user.id && req.user.role !== 'admin') {
+    return fail(res, 'That payment belongs to another account.');
+  }
+
+  let outcome = 'pending';
+  let message = 'We are still waiting for the payment to settle.';
+  try {
+    const status = await eps.verify(mtid);
+    recordEvent('eps', dep.id, mtid, 1, status.Status, status, req.ip);
+    outcome = eps.classify(status.Status);
+
+    if (outcome === 'paid') {
+      const result = money.creditGatewayDeposit(dep.id, status.Status, status.TotalAmount, 'BDT');
+      message = result.credited
+        ? `Paid. ${money.fmt(dep.amount)} has been added to your balance.`
+        : `Paid, and already added to your balance.`;
+    } else if (outcome === 'failed') {
+      money.failDeposit(dep.id, status.Status);
+      message = `The payment did not go through (${V.esc(status.Status || 'failed')}). Nothing was charged to you by us.`;
+    }
+  } catch (err) {
+    recordEvent('eps', dep.id, mtid, 0, 'verify_error', { error: err.message }, req.ip);
+    message = `We could not confirm the payment yet: ${err.message}. If money left your account it will be credited once EPS confirms; contact support with reference ${mtid}.`;
+  }
+
+  send(req, res, {
+    title: 'Payment', active: 'wallet',
+    body: `
+<div class="narrow-wide">
+  <h1>${outcome === 'paid' ? 'Payment received' : outcome === 'failed' ? 'Payment not completed' : 'Payment pending'}</h1>
+  <div class="alert alert-${outcome === 'paid' ? 'ok' : outcome === 'failed' ? 'stop' : 'warn'}">${message}</div>
+  <div class="card pad">
+    <dl class="kv">
+      <dt>Reference</dt><dd class="mono">${V.esc(mtid)}</dd>
+      <dt>Amount</dt><dd>${V.money(dep.amount)}</dd>
+      <dt>Method</dt><dd>EPS (bKash, Nagad, card)</dd>
+    </dl>
+  </div>
+  <div class="btn-row"><a class="btn" href="/wallet">Back to wallet</a>
+    ${outcome !== 'paid' ? '<a class="btn btn-ghost" href="/support">Contact support</a>' : ''}</div>
+</div>`,
+  });
+});
+
+/* Start a Cryptomus payment. Crypto is priced in USD and converted at the rate
+   in settings, shown to the payer before they commit. */
+app.post('/wallet/deposit/crypto', need('merchant'), active, async (req, res) => {
+  if (!cryptomus.configured()) return fail(res, 'Crypto payments are not switched on yet.');
+
+  const usd = Number(String(req.body.usd || '').trim());
+  if (!Number.isFinite(usd) || usd < 1) return fail(res, 'Enter an amount in USD, at least 1.');
+
+  const rate = numSetting('usd_rate');                 // local units per 1 USD
+  const credit = Math.round(usd * rate);
+  const min = numSetting('min_deposit');
+  if (credit < min) return fail(res, `That is under the smallest deposit of ${money.fmt(min)}`);
+
+  const info = db.prepare(`INSERT INTO deposits (user_id, amount, method, provider, reference)
+                           VALUES (?, ?, 'crypto', 'cryptomus', ?)`)
+    .run(req.user.id, credit, `$${usd.toFixed(2)} @ ${rate / 100}`);
+  const depositId = Number(info.lastInsertRowid);
+
+  try {
+    const site = baseUrl(req);
+    const invoice = await cryptomus.createInvoice({
+      orderId: depositId,
+      amount: usd.toFixed(2),
+      currency: 'USD',
+      callbackUrl: `${site}/hooks/cryptomus`,
+      successUrl: `${site}/wallet/deposit/crypto/return?id=${depositId}`,
+      returnUrl: `${site}/wallet`,
+    });
+
+    db.prepare('UPDATE deposits SET provider_ref = ?, pay_url = ? WHERE id = ?')
+      .run(invoice.uuid, invoice.url, depositId);
+    audit(req.user.id, 'deposit_started', `deposit:${depositId}`,
+          { provider: 'cryptomus', usd, credit }, req.ip);
+    res.redirect(invoice.url);
+  } catch (err) {
+    money.failDeposit(depositId, 'init_failed');
+    recordEvent('cryptomus', depositId, null, 0, 'init_failed', { error: err.message }, req.ip);
+    fail(res, `The invoice could not be created: ${err.message}`);
+  }
+});
+
+app.get('/wallet/deposit/crypto/return', need(), async (req, res) => {
+  const dep = db.prepare("SELECT * FROM deposits WHERE id = ? AND provider = 'cryptomus'")
+    .get(Number(req.query.id));
+  if (!dep) return fail(res, 'That payment is not one of ours.');
+  if (dep.user_id !== req.user.id && req.user.role !== 'admin') {
+    return fail(res, 'That payment belongs to another account.');
+  }
+
+  // The webhook is the real mechanism. This is a courtesy check for somebody
+  // staring at the screen, and it reaches the same conclusion the same way.
+  let message = 'Waiting for the blockchain to confirm. This can take a few minutes.';
+  let tone = 'warn';
+  if (dep.status === 'approved') {
+    message = `Confirmed. ${money.fmt(dep.amount)} has been added to your balance.`;
+    tone = 'ok';
+  } else if (dep.status === 'rejected') {
+    message = 'That invoice was not paid.';
+    tone = 'stop';
+  } else {
+    try {
+      const info = await cryptomus.invoiceInfo({ uuid: dep.provider_ref, orderId: dep.id });
+      recordEvent('cryptomus', dep.id, dep.provider_ref, 1, info.payment_status, info, req.ip);
+      const state = cryptomus.classify(info.payment_status);
+      if (state === 'paid') {
+        money.creditGatewayDeposit(dep.id, info.payment_status, info.payment_amount, info.payer_currency);
+        message = `Confirmed. ${money.fmt(dep.amount)} has been added to your balance.`;
+        tone = 'ok';
+      } else if (state === 'failed') {
+        money.failDeposit(dep.id, info.payment_status);
+        message = 'That invoice was not paid.';
+        tone = 'stop';
+      }
+    } catch (err) {
+      message = `Still waiting. ${err.message}`;
+    }
+  }
+
+  send(req, res, {
+    title: 'Crypto payment', active: 'wallet',
+    body: `
+<div class="narrow-wide">
+  <h1>Crypto deposit</h1>
+  <div class="alert alert-${tone}">${V.esc(message)}</div>
+  <div class="card pad"><dl class="kv">
+    <dt>Reference</dt><dd class="mono">${V.esc(dep.provider_ref || '')}</dd>
+    <dt>Will credit</dt><dd>${V.money(dep.amount)}</dd>
+    <dt>Priced at</dt><dd>${V.esc(dep.reference || '')}</dd>
+  </dl></div>
+  <div class="btn-row"><a class="btn" href="/wallet">Back to wallet</a>
+    ${dep.pay_url && dep.status === 'pending'
+      ? `<a class="btn btn-ghost" href="${V.esc(dep.pay_url)}">Open the invoice again</a>` : ''}</div>
+</div>`,
+  });
+});
+
+/* The Cryptomus webhook.
+
+   No session, no CSRF - it is a server talking to a server, and the signature
+   is what authenticates it. Anything that fails verification is written down
+   and then ignored: an unverified callback must never move money, and it must
+   never be answered with an error either, or a stranger gets to probe which
+   deposit ids exist.
+*/
+app.post('/hooks/cryptomus', express.json({ limit: '256kb' }), (req, res) => {
+  const payload = req.body || {};
+  const ok = cryptomus.verifyWebhook(payload);
+  const orderId = Number(payload.order_id) || null;
+
+  recordEvent('cryptomus', orderId, payload.uuid, ok, payload.status, payload, req.ip);
+
+  if (!ok) {
+    audit(null, 'webhook_bad_signature', `cryptomus:${payload.uuid || '?'}`, null, req.ip);
+    return res.status(200).json({ ok: true });
+  }
+
+  const dep = orderId
+    ? db.prepare("SELECT * FROM deposits WHERE id = ? AND provider = 'cryptomus'").get(orderId)
+    : null;
+  if (!dep) return res.status(200).json({ ok: true });
+
+  const state = cryptomus.classify(payload.status);
+  try {
+    if (state === 'paid') {
+      const result = money.creditGatewayDeposit(
+        dep.id, payload.status, payload.payment_amount, payload.payer_currency);
+      if (result.credited) {
+        audit(null, 'deposit_credited', `deposit:${dep.id}`,
+              { provider: 'cryptomus', amount: dep.amount }, req.ip);
+      }
+    } else if (state === 'failed' && payload.is_final) {
+      money.failDeposit(dep.id, payload.status);
+    }
+  } catch (err) {
+    console.error('cryptomus webhook:', err.message);
+  }
+
+  // Always 200: Cryptomus retries on anything else, and a retry storm over a
+  // bug on our side helps nobody.
+  res.status(200).json({ ok: true });
+});
+
+app.get('/admin/gateway', need('admin'), (req, res) => {
+  const events = db.prepare(`
+    SELECT e.*, d.user_id, u.name AS user_name, d.amount
+    FROM gateway_events e
+    LEFT JOIN deposits d ON d.id = e.deposit_id
+    LEFT JOIN users u ON u.id = d.user_id
+    ORDER BY e.id DESC LIMIT 120
+  `).all();
+  const bad = db.prepare('SELECT COUNT(*) AS n FROM gateway_events WHERE verified = 0').get().n;
+
+  send(req, res, {
+    title: 'Gateway', active: 'gateway', wide: true,
+    body: `<h1>Gateway activity</h1>
+<div class="stat-row">
+  <div class="stat"><b>${eps.configured() ? 'on' : 'off'}</b><span>EPS</span></div>
+  <div class="stat"><b>${cryptomus.configured() ? 'on' : 'off'}</b><span>Cryptomus</span></div>
+  <div class="stat ${bad ? 'bad' : ''}"><b>${bad}</b><span>unverified callbacks</span></div>
+</div>
+${bad ? `<div class="alert alert-warn">Unverified callbacks are recorded and ignored &mdash; they never
+  move money. A few are normal (probes). A lot, with real references in them, means a key is wrong.</div>` : ''}
+<div class="card"><div class="table-wrap"><table>
+  <thead><tr><th>When</th><th>Provider</th><th>Deposit</th><th>User</th><th>Status</th><th>Signature</th><th>Reference</th></tr></thead>
+  <tbody>${events.map(e => `<tr${e.verified ? '' : ' class="flagged"'}>
+    <td class="dim">${V.ago(e.created_at)}</td>
+    <td>${V.esc(e.provider)}</td>
+    <td class="num">${e.deposit_id ? `#${e.deposit_id}` : '--'}</td>
+    <td>${V.esc(e.user_name || '')}${e.amount ? `<div class="dim">${V.money(e.amount)}</div>` : ''}</td>
+    <td>${V.esc(e.status || '')}</td>
+    <td>${e.verified ? '<span class="pill s-approved">verified</span>' : '<span class="pill s-rejected">rejected</span>'}</td>
+    <td class="mono clip">${V.esc(String(e.ref || '').slice(0, 30))}</td>
+  </tr>`).join('') || '<tr><td colspan="7" class="muted pad">Nothing yet.</td></tr>'}</tbody>
+</table></div></div>`,
+  });
 });
 
 // ======================================================================

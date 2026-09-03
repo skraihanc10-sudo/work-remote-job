@@ -127,6 +127,81 @@ Settings live in the `settings` table; the defaults are in `src/lib/db.js`.
 
 ---
 
+## Payments
+
+Two gateways, plus a manual fallback.
+
+| | |
+| --- | --- |
+| **EPS** | bKash, Nagad, Rocket, cards, internet banking |
+| **Cryptomus** | USDT, BTC and other crypto, priced in USD |
+| Manual | A merchant records a transfer; an admin confirms it by hand |
+
+### The rule that matters
+
+**Money is credited only by a server-to-server answer from the gateway.**
+
+A payer's browser returning to a success URL proves nothing — it is a page
+anyone can open. So the EPS return page does not credit anything; it calls
+`CheckMerchantTransactionStatus` and reports what EPS says. Cryptomus credits
+from its signed webhook, and the return page asks `payment/info` for the same
+answer.
+
+The amount credited is the one recorded on our own deposit row when the payment
+was created, never a number lifted from the callback.
+
+### Crediting exactly once
+
+Webhooks arrive twice. Sometimes ten times, sometimes while somebody is
+refreshing the page. `creditGatewayDeposit` opens an immediate transaction and
+only a row still marked `pending` may move to `approved`, so only one caller
+ever writes the ledger entry. Everything else finds nothing pending and does
+nothing.
+
+Tested by firing ten identical signed webhooks in parallel: balance moved once,
+one ledger row.
+
+### Signatures
+
+Cryptomus signs with `md5(base64(json) + payment_key)`. The catch worth knowing:
+it is computed the way PHP's `json_encode` writes JSON, and PHP escapes forward
+slashes. A URL in the payload is enough to make a naive Node signature differ.
+We send the slash-escaped form and accept either when verifying.
+
+EPS signs each request with `base64(HMAC-SHA512(value, hash_key))` in `x-hash` —
+the username for the token call, the merchant transaction id for the others.
+
+Every callback is written to `gateway_events` as received, verified or not.
+Unverified ones are recorded and ignored — never answered with an error, which
+would let a stranger probe which deposit ids exist. **Admin → Gateway** shows
+them; a handful is normal noise, a lot with real references means a wrong key.
+
+### Configuration
+
+```
+PUBLIC_URL=https://your-domain          # used to build callback URLs
+
+EPS_USERNAME=...
+EPS_PASSWORD=...
+EPS_HASH_KEY=...
+EPS_MERCHANT_ID=...
+EPS_STORE_ID=...
+EPS_SANDBOX=1                           # 0 for live
+
+CRYPTOMUS_MERCHANT_ID=...
+CRYPTOMUS_PAYMENT_KEY=...
+```
+
+Cryptomus needs the callback URL reachable from the internet:
+`https://your-domain/hooks/cryptomus`. Nothing arrives on localhost.
+
+**The crypto rate is manual.** `usd_rate` in settings is local units per USD
+(default 12000 = 120.00). It is deliberately not automatic: a wrong live rate
+silently mispays everybody, and this moves slowly enough to set by hand. Check
+it before you rely on it.
+
+---
+
 ## Roles
 
 **Worker** — browse jobs, take a task, send proof, get paid, withdraw.
@@ -152,6 +227,7 @@ src/lib/auth.js        sessions, admin roles, connection history, notices
 src/lib/money.js       ledger, escrow, deposits, withdrawals
 src/lib/antispam.js    every rule above
 src/lib/google.js      Google sign-in, by hand, no library
+src/lib/payments/      EPS and Cryptomus
 src/lib/views.js       HTML layout and shared pieces
 src/web/               stylesheet and two small scripts
 data/                  the database and uploaded proofs  (gitignored)
@@ -176,6 +252,7 @@ are counting their earnings is worth more than any animation.
 | `GOOGLE_REDIRECT_URI` | localhost | must match Google exactly |
 | `ADMIN_EMAILS` | — | comma-separated; these accounts become admins |
 | `ALLOW_DEV_LOGIN` | off | local development only, see above |
+| `PUBLIC_URL` | from the request | the address gateways call back to |
 
 ---
 
@@ -184,9 +261,10 @@ are counting their earnings is worth more than any animation.
 The parts below are deliberately not built, because getting them wrong is worse
 than not having them.
 
-- **Payments are manual.** A merchant records a deposit with a transaction
-  reference and an admin confirms it. There is no gateway integration, and no
-  automatic verification that the money actually arrived.
+- **The gateways are wired but untested against real money.** The code is
+  written to both providers' documented APIs and every guard is tested (see
+  below), but neither has been run against a live merchant account. Do a small
+  real deposit through each before opening it to anyone else.
 - **No KYC and no identity checks.** Holding customer funds and paying people
   out is a regulated activity in most places. Find out what applies to you
   before taking real deposits.
