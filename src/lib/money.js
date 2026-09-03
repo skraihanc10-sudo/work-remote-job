@@ -44,6 +44,55 @@ function history(userId, limit = 60) {
   ).all(userId, limit);
 }
 
+// ----------------------------------------------------------- admin adjust
+/* An admin moving money into or out of somebody's balance by hand.
+
+   This is the one place in the system where money appears without a payment
+   behind it, so everything about it is built to be answerable later:
+
+   - it is a normal ledger row, so it shows in the person's own wallet history
+     exactly like anything else - nothing is hidden from the account holder
+   - the reason is required and stored, and it is shown to them
+   - who did it is recorded in the row and in the audit log
+   - a deduction can never push somebody below zero, because a negative balance
+     is not a state the rest of the system knows how to reason about
+
+   It exists because real support work needs it: a payment that arrived outside
+   the gateway, a mistaken rejection to put right, a bonus. What it must never
+   become is a quiet way to change the books.
+*/
+function adjustBalance({ userId, amount, reason, adminId, note }) {
+  if (!Number.isInteger(amount) || amount === 0) {
+    throw new Error('Enter an amount to add or take away');
+  }
+  if (!reason || String(reason).trim().length < 5) {
+    throw new Error('Give a reason - the account holder sees it in their wallet');
+  }
+
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const user = db.prepare('SELECT id, name FROM users WHERE id = ?').get(userId);
+    if (!user) throw new Error('No such account');
+
+    const before = balance(userId);
+    if (amount < 0 && before + amount < 0) {
+      throw new Error(
+        `That would take ${user.name} to ${fmt(before + amount)}. Their balance is ${fmt(before)}.`
+      );
+    }
+
+    entry(userId, amount > 0 ? 'admin_credit' : 'admin_debit', amount,
+          { type: 'admin', id: adminId || null },
+          (amount > 0 ? 'Added by support: ' : 'Deducted by support: ') + String(reason).trim());
+
+    db.exec('COMMIT');
+    return { before, after: before + amount, amount };
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
 // ------------------------------------------------------------------ deposit
 /* Credit a gateway deposit exactly once.
 
@@ -227,6 +276,6 @@ function settleWithdrawal(id, approve, note) {
 
 module.exports = {
   parseAmount, fmt, balance, entry, history,
-  creditDeposit, creditGatewayDeposit, failDeposit, fundJob, escrowOf, escrowRemaining, payForSubmission, refundRemaining, platformUserId,
+  adjustBalance, creditDeposit, creditGatewayDeposit, failDeposit, fundJob, escrowOf, escrowRemaining, payForSubmission, refundRemaining, platformUserId,
   requestWithdrawal, settleWithdrawal,
 };

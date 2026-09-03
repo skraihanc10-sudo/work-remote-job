@@ -507,3 +507,48 @@ ul.tight li { margin-bottom: 2px; }
 .earned { flex-basis: 100%; margin-left: 0; text-align: center; }
 .hero-panel { align-self: center; }
 .hero-empty { margin: 0; font-size: 14px; line-height: 1.6; color: rgba(255,255,255,.72); }
+
+.adjust-form { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: end; }
+.adjust-form .field.wide { grid-column: 1 / -1; }
+.adjust-form button { grid-column: 1 / -1; justify-self: start; }
+@media (max-width: 700px) { .adjust-form { grid-template-columns: 1fr; } }
+
+/* ============================================================ doc pages */
+/* Full bleed: the band should reach both edges of the window, not stop at the
+   content column. The negative margins pull it out of the centred wrap. */
+.page-hero {
+  background: var(--navy); color: #fff;
+  margin: -26px calc(50% - 50vw) 30px;
+  padding: 44px 0 38px;
+}
+.page-hero h1 { color: #fff; font-size: clamp(26px, 4vw, 36px); }
+.page-hero .crumb { margin: 8px 0 0; font-size: 13.5px; color: rgba(255,255,255,.6); }
+.page-hero .crumb a { color: rgba(255,255,255,.85); }
+
+.doc { max-width: 720px; }
+.doc h2 { font-size: 20px; margin: 36px 0 10px; }
+.doc h2:first-of-type { margin-top: 4px; }
+.doc p, .doc li { font-size: 15.5px; line-height: 1.72; }
+.doc ul { padding-left: 20px; margin-bottom: 16px; }
+.doc li { margin-bottom: 8px; }
+.doc .lede { margin-bottom: 26px; }
+.doc .stat-row { margin: 18px 0; }
+.doc .two { margin-bottom: 20px; }
+
+.faq { display: grid; gap: 10px; margin-bottom: 22px; }
+.faq-item {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 9px; padding: 14px 18px;
+}
+.faq-item summary {
+  cursor: pointer; font-weight: 600; font-size: 15.5px;
+  list-style: none; display: flex; justify-content: space-between; gap: 12px;
+}
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item summary::after { content: '+'; color: var(--muted); font-weight: 400; font-size: 20px; line-height: 1; }
+.faq-item[open] summary::after { content: '\2212'; }
+.faq-a { padding-top: 10px; color: var(--ink-2); font-size: 15px; line-height: 1.7; }
+
+.foot-links { flex-wrap: wrap; row-gap: 6px; }
+
+

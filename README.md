@@ -195,15 +195,16 @@ wrong by an amount nobody can explain.
 Every movement is a row, so the number on screen and the history behind it can
 never disagree, and a disputed payout can always be reconstructed.
 
-You can check the books at any time — deposits should equal all balances plus
-everything still in escrow:
+You can check the books at any time — everything that came in (deposits plus any
+admin adjustment) should equal all balances plus everything still in escrow:
 
 ```
 node -e "const m=require('./src/lib/money'),{db}=require('./src/lib/db');
 const led=db.prepare('SELECT COALESCE(SUM(amount),0) n FROM ledger').get().n;
 const esc=db.prepare('SELECT COALESCE(SUM(held-released-refunded),0) n FROM escrow').get().n;
 const dep=db.prepare(\"SELECT COALESCE(SUM(amount),0) n FROM ledger WHERE kind='deposit'\").get().n;
-console.log(led+esc===dep ? 'balanced' : 'MISMATCH ' + m.fmt(dep-led-esc));"
+const adj=db.prepare(\"SELECT COALESCE(SUM(amount),0) n FROM ledger WHERE kind IN ('admin_credit','admin_debit')\").get().n;
+console.log(led+esc===dep+adj ? 'balanced' : 'MISMATCH ' + m.fmt(dep+adj-led-esc));"
 ```
 
 ---
@@ -359,6 +360,30 @@ escrow lands somewhere.
 
 ---
 
+## Moving money by hand
+
+**Admin → Users → a name → Adjust balance** adds or removes money in the site
+currency or in USD, converted at the rate in settings.
+
+This is the only place money appears without a payment behind it, so it is
+built to be answerable afterwards:
+
+- it is an ordinary ledger row, so it shows in that person's own wallet history
+  like anything else — nothing is hidden from the account holder
+- the reason is required, stored, and shown to them in a notice
+- who did it, and the balance before and after, go to the audit log
+- a deduction can never take anyone below zero
+
+It exists because real support work needs it: a payment that arrived outside the
+gateway, a mistaken rejection to put right, a bonus. What it must never become is
+a quiet way to change the books — which is why every one of those properties is
+there.
+
+**Admin → Settings** changes the rate, the fee, every anti-spam threshold and the
+contact details without a deploy.
+
+---
+
 ## The home page numbers
 
 Every figure is counted from the database. None is typed into a settings box,
@@ -389,6 +414,10 @@ src/lib/antispam.js    every rule above
 src/lib/google.js      Google sign-in, by hand, no library
 src/lib/payments/      EPS and Cryptomus
 src/lib/views.js       HTML layout and shared pieces
+                       (About, Security, Terms, Privacy, Refunds, FAQ and
+                        Contact are routes in server.js - they read the live
+                        settings, so the fee and limits they quote are the ones
+                        actually enforced)
 src/web/               stylesheet and two small scripts
 data/                  the database and uploaded proofs  (gitignored)
 ```

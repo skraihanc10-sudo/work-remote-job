@@ -61,6 +61,7 @@ function nav(user, active) {
       <a href="/admin/connections"${active === 'connections' ? ' class="on"' : ''}>Connections</a>
       <a href="/admin/roles"${active === 'roles' ? ' class="on"' : ''}>Roles</a>
       <a href="/admin/gateway"${active === 'gateway' ? ' class="on"' : ''}>Gateway</a>
+      <a href="/admin/settings"${active === 'settings' ? ' class="on"' : ''}>Settings</a>
       <a href="/admin/support"${active === 'support' ? ' class="on"' : ''}>Support</a>
       <span class="nav-gap"></span>
       <span class="who">${esc(user.name)} · admin</span>
@@ -143,9 +144,15 @@ ${body}
   <div class="wrap foot-inner">
     <span>&copy; ${new Date().getFullYear()} ${SITE}</span>
     <span class="foot-links">
+      <a href="/about">About</a>
       <a href="/how-it-works">How it works</a>
       <a href="/rules">Rules</a>
-      <a href="/support">Support</a>
+      <a href="/faq">Questions</a>
+      <a href="/security">Security</a>
+      <a href="/terms">Terms</a>
+      <a href="/privacy-policy">Privacy</a>
+      <a href="/refunds">Refunds</a>
+      <a href="/contact">Contact</a>
     </span>
   </div>
 </footer>

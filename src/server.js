@@ -549,6 +549,434 @@ app.get('/rules', (req, res) => send(req, res, {
 }));
 
 // ======================================================================
+// THE WRITTEN PAGES
+// ======================================================================
+/* Everything here describes what the software actually does. That is the whole
+   point of writing it rather than pasting a template: a policy that does not
+   match the system is worse than none, because the first person to be treated
+   differently from what it promised has a genuine complaint.
+
+   Contact details come from settings, and each page says plainly when one has
+   not been filled in yet rather than printing a blank line.
+*/
+function contactBlock() {
+  const email = getSetting('business_email', '');
+  const phone = getSetting('business_phone', '');
+  const address = getSetting('business_address', '');
+  const reg = getSetting('business_reg', '');
+  const tg = getSetting('telegram_support', '');
+
+  const rows = [];
+  if (email) rows.push(['Email', V.esc(email)]);
+  if (phone) rows.push(['Phone', V.esc(phone)]);
+  if (address) rows.push(['Address', V.br(address)]);
+  if (reg) rows.push(['Registration', V.esc(reg)]);
+  if (tg) rows.push(['Telegram', `<a href="${V.esc(tg)}" target="_blank" rel="noopener">${V.esc(tg)}</a>`]);
+  rows.push(['Support', '<a href="/support">Open a conversation inside your account</a>']);
+
+  return `<dl class="kv">${rows.map(r => `<dt>${r[0]}</dt><dd>${r[1]}</dd>`).join('')}</dl>`;
+}
+
+function pageHead(title, crumb) {
+  return `<div class="page-hero">
+    <div class="wrap">
+      <h1>${V.esc(title)}</h1>
+      <p class="crumb"><a href="/">Home</a> / ${V.esc(crumb || title)}</p>
+    </div>
+  </div>`;
+}
+
+function docPage(req, res, { title, lead, body }) {
+  send(req, res, {
+    title,
+    body: `${pageHead(title)}
+<div class="doc">
+  ${lead ? `<p class="lede">${lead}</p>` : ''}
+  ${body}
+  <p class="fine">Last updated ${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}.</p>
+</div>`,
+  });
+}
+
+// -------------------------------------------------------------------- about
+app.get('/about', (req, res) => {
+  const s = homeStats();
+  docPage(req, res, {
+    title: 'About us',
+    lead: `Remote Work BD is a microjob marketplace built in Bangladesh. Buyers post
+      small online tasks and fund them up front; workers do a task, send proof, and are
+      paid as soon as it is approved.`,
+    body: `
+<h2>Why it exists</h2>
+<p>Two things go wrong on sites like this, and both come down to trust running one
+   way only.</p>
+<p>Workers finish a task and then find the buyer has gone, or the budget ran out, or
+   the work was rejected with no reason. Buyers pay for a hundred sign-ups and receive
+   a hundred screenshots from three people using twenty accounts.</p>
+<p>So the money is held in escrow, and the rules that stop farming are enforced by the
+   system rather than written in a page nobody reads. A worker never has to trust that
+   a buyer will pay, because the money was already set aside. A buyer never pays for
+   work they have not seen.</p>
+
+<h2>How we make money</h2>
+<p>A percentage of each approved task, taken from the amount the buyer already agreed
+   to pay. It is currently <b>${(numSetting('commission_bps') / 100).toFixed(0)}%</b>, shown on
+   every task before a worker starts it, and it is the only thing we charge. No fee to
+   join, no fee to post a job, no monthly cost.</p>
+
+<h2>Where things stand</h2>
+<div class="stat-row">
+  <div class="stat"><b>${s.workers}</b><span>workers</span></div>
+  <div class="stat"><b>${s.merchants}</b><span>buyers</span></div>
+  <div class="stat"><b>${s.done}</b><span>tasks approved</span></div>
+  <div class="stat"><b>${V.money(s.paid)}</b><span>paid to workers</span></div>
+</div>
+<p class="muted">Counted from our own records, not rounded up. The site is new, and
+   these numbers say so honestly rather than being dressed up.</p>
+
+<h2>Contact</h2>
+${contactBlock()}`,
+  });
+});
+
+// ----------------------------------------------------------------- security
+app.get('/security', (req, res) => {
+  docPage(req, res, {
+    title: 'Security',
+    lead: `This page describes what actually protects your account and your money here,
+      including the parts we have not built yet. A security page that only lists
+      strengths is a marketing page.`,
+    body: `
+<h2>Your account</h2>
+<p><b>There are no passwords in this system.</b> Not hashed, not encrypted &mdash; none
+   exist. Sign-in is Google only, so there is no credential here to steal, guess, reuse
+   from another leak, or reset by social engineering. We never see your Google password.</p>
+<p>From Google we receive your name, email address and profile picture. Nothing else,
+   and we cannot read your Gmail, contacts or files.</p>
+<p>Your session is a random token stored in our database, not a token you carry. Signing
+   out deletes it, so it stops working immediately &mdash; everywhere.</p>
+
+<h2>Your money</h2>
+<p><b>Balances are not stored as a number.</b> Your balance is the sum of every entry in
+   your wallet history, so the figure on screen and the history behind it cannot disagree.
+   If a payout is ever disputed, it can be reconstructed line by line.</p>
+<p>Amounts are held as whole units of the smallest denomination, never as decimals, so no
+   amount drifts by fractions over time.</p>
+<p>When a buyer posts a job, the full cost leaves their balance immediately and is held
+   in escrow. It can only move to a worker on approval, or back to the buyer on
+   cancellation. A buyer cannot spend money that is already promised to workers.</p>
+<p>Deposits are only credited when the payment provider confirms them to our server
+   directly. Returning to a success page proves nothing &mdash; anyone can open a page &mdash;
+   so we ask the provider what happened rather than believing the browser.</p>
+
+<h2>Fraud and multiple accounts</h2>
+<p>One Google account is one account here. Each job can be done once per worker, ever,
+   enforced by the database itself and not only by a check that could be raced.</p>
+<p>Time on a task is measured from our own record of when you started, never from
+   anything your browser reports. Work submitted implausibly fast, or with proof text
+   already used on another task, is flagged for the buyer with the reason attached.</p>
+<p>We record the internet address of each sign-in. If several accounts appear on one
+   connection, everyone on it is <b>told</b> &mdash; not blocked. Shared wifi, families,
+   offices and mobile networks all produce this honestly, so it is treated as one signal
+   for a person to weigh, never as proof on its own.</p>
+
+<h2>The site itself</h2>
+<ul>
+  <li>Served only over HTTPS.</li>
+  <li>Session cookies are HttpOnly and same-site, so page scripts cannot read them and
+      another site cannot send them.</li>
+  <li>Every form that changes anything carries a token tied to your session, so a form
+      on someone else's site cannot act as you.</li>
+  <li>Proof screenshots are visible only to the worker, the buyer for that task, and an
+      administrator. They are not public and are not guessable by URL.</li>
+  <li>Every administrator action &mdash; a suspension, a balance change, a decision on a
+      report &mdash; is written to an audit log with who did it and when.</li>
+</ul>
+
+<h2>What we have not built</h2>
+<p>Stated plainly, because you deserve to know what you are relying on.</p>
+<ul>
+  <li><b>No two-factor authentication of our own.</b> Your account is exactly as
+      protected as your Google account, so put two-factor authentication on that.</li>
+  <li><b>No email notifications.</b> Nothing is sent to you; you find out about an
+      approval or a decision by opening the site.</li>
+  <li><b>Payouts are processed by a person.</b> Withdrawals are reviewed and paid by
+      hand, so they are not instant.</li>
+  <li><b>We are not a bank.</b> Money held here is not insured or guaranteed by anyone.
+      Withdraw earnings you are not about to use.</li>
+</ul>
+
+<h2>Telling us about a problem</h2>
+<p>If you find a security problem, please report it through
+   <a href="/support">support</a> before telling anyone else, and give us a reasonable
+   chance to fix it. We will not take action against anyone who reports a genuine issue
+   in good faith and does not access other people's data while proving it.</p>`,
+  });
+});
+
+// -------------------------------------------------------------------- terms
+app.get('/terms', (req, res) => {
+  docPage(req, res, {
+    title: 'Terms of service',
+    lead: `Plain rules for using Remote Work BD. By signing in you agree to them.`,
+    body: `
+<h2>Accounts</h2>
+<ul>
+  <li>You need a Google account with a verified email address.</li>
+  <li><b>One person, one account.</b> Running more than one is the thing most likely to
+      get every account involved closed.</li>
+  <li>You must be at least 18, or old enough to work legally where you live.</li>
+  <li>Do not share your account with anyone.</li>
+</ul>
+
+<h2>For workers</h2>
+<ul>
+  <li>Do the task as it is written and send the proof it asks for.</li>
+  <li>Each job can be done once. At most
+      <b>${numSetting('max_tasks_per_merchant_per_day')}</b> tasks from one buyer per day
+      and <b>${numSetting('max_tasks_per_day')}</b> in total per day.</li>
+  <li>Proof must be your own work. Reusing proof, editing screenshots or submitting for
+      work you did not do is fraud, not a shortcut.</li>
+  <li><b>${numSetting('auto_suspend_rejects')}</b> rejected tasks within
+      <b>${numSetting('auto_suspend_window_days')}</b> days suspends an account
+      automatically for <b>${numSetting('suspend_days')}</b> days.</li>
+</ul>
+
+<h2>For buyers</h2>
+<ul>
+  <li>A job must be funded before it goes live. The full cost is held in escrow.</li>
+  <li>Write instructions somebody can actually follow, and say exactly what proof you
+      want. Vague instructions cause most rejections.</li>
+  <li>Review submissions in reasonable time and give a reason with every rejection.</li>
+  <li><b>Rejecting good work to avoid paying is a breach of these terms.</b> Workers can
+      report it, an administrator can see the proof, and buyers who do it lose the
+      ability to post.</li>
+  <li>Do not ask for anything illegal, anything requiring somebody's personal documents,
+      or anything that breaks another platform's rules in a way that could get a worker's
+      own accounts closed.</li>
+</ul>
+
+<h2>Money</h2>
+<ul>
+  <li>We take <b>${(numSetting('commission_bps') / 100).toFixed(0)}%</b> of each approved
+      task. It is shown before a worker starts.</li>
+  <li>The smallest withdrawal is <b>${V.money(numSetting('min_withdrawal'))}</b>.</li>
+  <li>Withdrawals are checked and paid by a person, so allow a little time.</li>
+  <li>Balances are not a deposit account. We are not a bank and money here is not insured.</li>
+</ul>
+
+<h2>Suspension and closure</h2>
+<p>We may suspend an account while we look into something, and close one for fraud,
+   multiple accounts, or repeated breaches. Where an account is closed for fraud, money
+   in it may be withheld and used to refund buyers whose jobs were affected.</p>
+<p>If you think a decision was wrong, say so through <a href="/support">support</a>.
+   A person reads it.</p>
+
+<h2>What we do not promise</h2>
+<p>We do not guarantee that work will be available, that any particular job will be
+   approved, or that the site will be uninterrupted. We are the marketplace and the
+   escrow between two parties; the work itself is between the buyer and the worker.</p>
+
+<h2>Changes</h2>
+<p>If these terms change in a way that affects you, the site will tell you. Continuing
+   to use it after that means you accept the change.</p>`,
+  });
+});
+
+// ------------------------------------------------------------------ privacy
+app.get('/privacy-policy', (req, res) => {
+  docPage(req, res, {
+    title: 'Privacy',
+    lead: `What we hold about you, why, and what we do not hold. Everything below
+      describes the system as it actually is.`,
+    body: `
+<h2>What we hold</h2>
+<ul>
+  <li><b>From Google:</b> your name, email address and profile picture. That is the whole
+      list. We cannot read your Gmail, contacts or files.</li>
+  <li><b>What you type here:</b> your country, your payout details, the proof you send with
+      a task, and anything you write to support.</li>
+  <li><b>What the system records:</b> which tasks you took and when you started and
+      finished them, every movement of money in your wallet, and the internet address and
+      browser of each sign-in.</li>
+</ul>
+<p><b>We do not hold a password for you</b>, because none exists. There is no analytics or
+   advertising tracker on this site, and no third party is given your data to profile you.</p>
+
+<h2>Why we hold it</h2>
+<ul>
+  <li>To run your account and pay you.</li>
+  <li>To settle a dispute. When a rejection is challenged, the proof, the timings and the
+      wallet history are what let a person decide fairly.</li>
+  <li>To stop fraud. Sign-in addresses and task timings are how one person running many
+      accounts is told apart from many people sharing a connection.</li>
+  <li>To keep records a business is required to keep.</li>
+</ul>
+
+<h2>Who sees it</h2>
+<ul>
+  <li><b>Your proof screenshots</b> are visible to you, the buyer of that task, and an
+      administrator. Nobody else, and they are not public.</li>
+  <li><b>Your name</b> is shown to a buyer whose job you take, and on any review you
+      leave. Your email address is not shown to other users.</li>
+  <li><b>Payment providers</b> receive what they need to take a payment. We never see or
+      store your card number.</li>
+  <li>We do not sell your data, and we do not pass it to anyone for marketing.</li>
+</ul>
+
+<h2>Shared connections</h2>
+<p>We record the address each sign-in came from. If several accounts appear on one, the
+   people on it are told &mdash; nothing is restricted. We do this openly rather than
+   quietly, which is why the notice explains itself and why your own account page shows
+   you the same sign-in list an administrator sees.</p>
+
+<h2>How long</h2>
+<p>Account and money records are kept while your account exists and for as long
+   afterwards as tax and dispute rules require. Proof screenshots are kept while the task
+   they belong to could still be disputed. Support conversations are kept so a later
+   question has its history.</p>
+
+<h2>Your choices</h2>
+<ul>
+  <li>Ask what we hold about you, and we will tell you.</li>
+  <li>Ask us to correct something wrong.</li>
+  <li>Ask us to close your account. Withdraw your balance first &mdash; we cannot pay out
+      to an account that no longer exists. Records tied to money already moved are kept,
+      because deleting one side of a transaction is not something we can honestly do.</li>
+</ul>
+<p>Message <a href="/support">support</a> for any of these.</p>
+
+<h2>Cookies</h2>
+<p>One cookie holds your sign-in, and two short-lived ones carry you through the Google
+   sign-in and back. No advertising cookies, no third-party trackers, and nothing that
+   follows you to other sites.</p>
+
+<h2>Children</h2>
+<p>This site is not for anyone under 18.</p>
+
+<h2>Changes</h2>
+<p>If this changes in a way that affects you, the site will say so rather than quietly
+   updating the date at the bottom.</p>
+
+<h2>Contact</h2>
+${contactBlock()}`,
+  });
+});
+
+// ------------------------------------------------------------------ refunds
+app.get('/refunds', (req, res) => {
+  docPage(req, res, {
+    title: 'Refunds and cancellation',
+    lead: `What happens to money that has not been paid out yet.`,
+    body: `
+<h2>Cancelling a job</h2>
+<p>A buyer can cancel any job at any time. Everything still held in escrow and not yet
+   paid out returns to their balance immediately.</p>
+<p>Work already submitted still needs a decision. Cancelling does not make those
+   submissions disappear, and it does not let anyone avoid paying for work already done
+   and approvable &mdash; the money for them stays held until you approve or reject each one.</p>
+
+<h2>Slots nobody took</h2>
+<p>If a job finishes with unfilled slots, the money for those slots was never spent and
+   comes back when the job is cancelled or completed.</p>
+
+<h2>Deposits</h2>
+<p>Money added to your balance is for buying work on this site. We do not send deposits
+   back to a card or wallet as a matter of routine, because that is how payment systems
+   get used for moving money rather than buying anything.</p>
+<p>If you deposited by mistake, or a payment was taken twice, contact
+   <a href="/support">support</a> with the transaction reference and we will sort it out.</p>
+
+<h2>A rejection you think was unfair</h2>
+<p>Report it from the task page. An administrator can see your proof, the buyer's reason
+   and how long you spent, and can credit you directly if the rejection was wrong.</p>
+
+<h2>Withdrawals</h2>
+<p>A withdrawal leaves your balance as soon as you request it, so the same money cannot
+   be withdrawn twice. If we cannot pay it &mdash; wrong number, account closed &mdash; it is
+   returned to your balance in full with the reason.</p>
+
+<h2>Chargebacks</h2>
+<p>Reversing a payment through your bank or wallet after spending the balance closes the
+   account. If something is wrong, ask us first &mdash; it is faster and it does not cost
+   you the account.</p>`,
+  });
+});
+
+// ---------------------------------------------------------------------- faq
+app.get('/faq', (req, res) => {
+  const items = [
+    ['Is it free to join?',
+     'Yes. Free to join, free to post a job. We only take a percentage of each approved task.'],
+    ['How do I get paid?',
+     'The buyer approves your work and the money is credited to your balance immediately, from funds they had already set aside. Withdraw once you are over ' + V.money(numSetting('min_withdrawal')) + '.'],
+    ['Why do I need a Google account?',
+     'So one person is one account. Anyone can invent a name and a phone number; a crowd of Google accounts costs real effort. It is what protects people doing honest work. We never see your Google password.'],
+    ['Can I do the same job twice?',
+     'No. Each job can be done once per worker, ever. You can take at most ' + numSetting('max_tasks_per_merchant_per_day') + ' tasks from the same buyer per day and ' + numSetting('max_tasks_per_day') + ' in total per day.'],
+    ['Why was my task flagged?',
+     'Usually because it was submitted faster than the job expects, or the proof text matched something you sent on another task. Flagged does not mean rejected - it means the buyer is asked to look closely. Genuine work passes.'],
+    ['My work was rejected and I think that is wrong.',
+     'Report it from the task page. An administrator can see your proof, the reason the buyer gave and your time on the task, and can credit you if the rejection was unfair.'],
+    ['Several people in my house use this site. Is that a problem?',
+     'No, and you do not need to do anything. You may see a notice saying several accounts share your connection - that is us being open about what we record, not an accusation. Message support and it is noted on your account.'],
+    ['How long do withdrawals take?',
+     'They are checked and paid by a person, so not instantly. The amount leaves your balance right away so it cannot be requested twice.'],
+    ['Can I be a worker and a buyer?',
+     'One account is one side at a time. You can ask to switch from your account page; an administrator reviews it. Your balance and history stay exactly as they are.'],
+    ['I did not get an email about my task.',
+     'We do not send email at all yet. Everything - approvals, decisions, notices - appears when you open the site.'],
+  ];
+
+  docPage(req, res, {
+    title: 'Questions',
+    lead: 'The things people ask most.',
+    body: `<div class="faq">${items.map((q, i) => `
+      <details class="faq-item"${i === 0 ? ' open' : ''}>
+        <summary>${V.esc(q[0])}</summary>
+        <div class="faq-a">${V.esc(q[1])}</div>
+      </details>`).join('')}</div>
+      <p class="muted">Something not here? <a href="/support">Ask support</a> &mdash; a person answers.</p>`,
+  });
+});
+
+// ------------------------------------------------------------------ contact
+app.get('/contact', (req, res) => {
+  const tg = getSetting('telegram_channel', '');
+  const tgs = getSetting('telegram_support', '');
+  docPage(req, res, {
+    title: 'Contact',
+    lead: 'The fastest way to reach us is from inside your account, because we can see your tasks and payments next to your message.',
+    body: `
+<div class="two">
+  <div class="card pad">
+    <h2>Support</h2>
+    <p class="muted">Signed in, this opens a conversation attached to your account.
+       Replies appear on the same page.</p>
+    <a class="btn" href="/support">Open support</a>
+  </div>
+  <div class="card pad">
+    <h2>Telegram</h2>
+    ${tg || tgs ? `<p class="muted">Announcements and quick questions.</p>
+      <div class="btn-row">
+        ${tg ? `<a class="btn btn-ghost" href="${V.esc(tg)}" target="_blank" rel="noopener">Channel</a>` : ''}
+        ${tgs ? `<a class="btn btn-ghost" href="${V.esc(tgs)}" target="_blank" rel="noopener">Support chat</a>` : ''}
+      </div>`
+      : '<p class="muted">Our Telegram links are not published yet.</p>'}
+  </div>
+</div>
+
+<h2>Details</h2>
+${contactBlock()}
+
+<h2>Reporting abuse</h2>
+<p>If a buyer is rejecting good work, or an account is being used to farm tasks, report it
+   from the page it happened on &mdash; the report arrives with the task or job attached,
+   which is what lets us act on it quickly.</p>`,
+  });
+});
+
+// ======================================================================
 // SIGN IN  (Google only - there are no passwords anywhere in this app)
 // ======================================================================
 app.get(['/login', '/register'], (req, res) => {
@@ -1811,6 +2239,42 @@ ${asMerchant.jobs ? `<div class="stat-row">
   <div class="stat"><b>${asMerchant.filled} / ${asMerchant.slots}</b><span>slots taken</span></div>
 </div>` : ''}
 
+<div class="card">
+  <div class="card-head"><h2>Adjust balance</h2></div>
+  <div class="pad">
+    <p class="muted">Adds or removes money by hand. It appears in their wallet history
+       like anything else, they are told the reason, and it is written to the audit log
+       against your name. A deduction cannot take anyone below zero.</p>
+    <form method="post" action="/admin/users/${u.id}/balance" class="adjust-form">
+      ${csrfField(req)}
+      <div class="field">
+        <label for="f-direction">Do what</label>
+        <select id="f-direction" name="direction">
+          <option value="add">Add to balance</option>
+          <option value="remove">Take from balance</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-currency">Currency</label>
+        <select id="f-currency" name="currency">
+          <option value="local">${V.esc(getSetting('currency'))}</option>
+          <option value="usd">USD (converted at ${V.money(numSetting('usd_rate'))} per $1)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-amount">Amount</label>
+        <input id="f-amount" type="text" name="amount" placeholder="500.00" required>
+      </div>
+      <div class="field wide">
+        <label for="f-reason">Reason (they will read this)</label>
+        <input id="f-reason" type="text" name="reason" required maxlength="200"
+               placeholder="bKash payment received outside the gateway, trx ABC123">
+      </div>
+      <button class="btn" type="submit">Apply</button>
+    </form>
+  </div>
+</div>
+
 <div class="two">
   <div class="card">
     <div class="card-head"><h2>Tasks</h2></div>
@@ -1890,6 +2354,127 @@ ${reportsAgainst.length ? `<div class="card">
   </div>
 </div>`,
   });
+});
+
+/* Add or take money from one account by hand.
+
+   Accepts either the site currency or USD; USD is converted at the rate in
+   settings and the exact amount that will land is shown on the confirmation
+   before anything moves.
+*/
+app.post('/admin/users/:id/balance', need('admin'), (req, res) => {
+  const id = Number(req.params.id);
+  const currency = req.body.currency === 'usd' ? 'usd' : 'local';
+  const direction = req.body.direction === 'remove' ? -1 : 1;
+  const reason = String(req.body.reason || '').trim().slice(0, 200);
+
+  let units;
+  if (currency === 'usd') {
+    const usd = Number(String(req.body.amount || '').trim());
+    if (!Number.isFinite(usd) || usd <= 0) return fail(res, 'Enter a USD amount like 25 or 12.50');
+    units = Math.round(usd * numSetting('usd_rate'));
+  } else {
+    units = money.parseAmount(req.body.amount);
+    if (!units || units <= 0) return fail(res, 'Enter an amount like 500 or 500.00');
+  }
+
+  try {
+    const result = money.adjustBalance({
+      userId: id, amount: units * direction, reason, adminId: req.user.id,
+    });
+    db.prepare(`INSERT INTO notices (user_id, kind, title, body) VALUES (?, 'balance', ?, ?)`)
+      .run(id,
+        direction > 0 ? `${money.fmt(units)} was added to your balance`
+                      : `${money.fmt(units)} was taken from your balance`,
+        `Reason given: ${reason}` + String.fromCharCode(10, 10) +
+        `Your balance is now ${money.fmt(result.after)}. It is in your wallet history as well. If this looks wrong, message support.`);
+
+    audit(req.user.id, direction > 0 ? 'balance_credit' : 'balance_debit', `user:${id}`,
+      { units, currency, reason, before: result.before, after: result.after }, req.ip);
+
+    back(res, '/admin/users/' + id,
+      `${direction > 0 ? 'Added' : 'Deducted'} ${money.fmt(units)}. New balance ${money.fmt(result.after)}.`, 'ok');
+  } catch (err) {
+    fail(res, err.message);
+  }
+});
+
+/* Settings an admin can change without a deploy. Deliberately a short list -
+   anything that changes how money is calculated belongs here where it can be
+   seen, not spread through the code. */
+const EDITABLE = [
+  { key: 'usd_rate', label: 'Rate for 1 USD', money: true,
+    hint: 'Used for crypto deposits and USD adjustments. Set by hand on purpose - a wrong automatic rate mispays everyone quietly.' },
+  { key: 'commission_bps', label: 'Platform fee', bps: true,
+    hint: 'Taken from each approved task. 1000 = 10%.' },
+  { key: 'min_withdrawal', label: 'Smallest withdrawal', money: true },
+  { key: 'min_deposit', label: 'Smallest deposit', money: true },
+  { key: 'max_tasks_per_day', label: 'Tasks per worker per day' },
+  { key: 'max_tasks_per_merchant_per_day', label: 'Tasks from one buyer per day' },
+  { key: 'min_seconds_floor', label: 'Minimum seconds on any task' },
+  { key: 'auto_suspend_rejects', label: 'Rejections that suspend' },
+  { key: 'auto_suspend_window_days', label: 'Counted over how many days' },
+  { key: 'strikes_before_suspend', label: 'Strikes before suspension' },
+  { key: 'suspend_days', label: 'Suspension length in days' },
+  { key: 'ip_accounts_warn', label: 'Accounts on one connection before a notice' },
+  { key: 'telegram_channel', label: 'Telegram channel URL', text: true },
+  { key: 'telegram_support', label: 'Telegram support URL', text: true },
+  { key: 'business_email', label: 'Contact email', text: true },
+  { key: 'business_phone', label: 'Contact phone', text: true },
+  { key: 'business_address', label: 'Registered address', text: true },
+  { key: 'business_reg', label: 'Business registration / trade licence', text: true },
+];
+
+app.get('/admin/settings', need('admin'), (req, res) => {
+  send(req, res, {
+    title: 'Settings', active: 'settings',
+    body: `
+<h1>Settings</h1>
+<p class="muted">Changed here rather than in the code, so nothing needs a deploy.
+   Amounts are in ${V.esc(getSetting('currency'))} unless the label says otherwise.</p>
+
+<form method="post" action="/admin/settings" class="card pad">
+  ${csrfField(req)}
+  <div class="form-grid">
+    ${EDITABLE.map(f => {
+      const raw = getSetting(f.key, '');
+      const shown = f.money ? (Number(raw) / 100).toFixed(2) : raw;
+      const hint = f.hint || (f.money ? 'In ' + getSetting('currency') : (f.bps ? 'Basis points: 1000 = 10%' : ''));
+      return V.field({ label: f.label, name: f.key, value: shown, hint });
+    }).join('')}
+  </div>
+  <button class="btn" type="submit">Save settings</button>
+</form>`,
+  });
+});
+
+app.post('/admin/settings', need('admin'), (req, res) => {
+  const changed = [];
+  for (const f of EDITABLE) {
+    const given = String(req.body[f.key] == null ? '' : req.body[f.key]).trim();
+    let value;
+
+    if (f.text) {
+      value = given;
+    } else if (f.money) {
+      const units = money.parseAmount(given);
+      if (units === null) return fail(res, `"${f.label}" should be an amount like 120.00`);
+      value = String(units);
+    } else {
+      if (!/^\d+$/.test(given)) return fail(res, `"${f.label}" should be a whole number`);
+      value = given;
+    }
+
+    if (String(getSetting(f.key, '')) !== value) {
+      setSetting(f.key, value);
+      changed.push(f.key);
+    }
+  }
+
+  if (changed.length) audit(req.user.id, 'settings_changed', null, { changed }, req.ip);
+  back(res, '/admin/settings',
+    changed.length ? `Saved ${changed.length} change${changed.length === 1 ? '' : 's'}.` : 'Nothing changed.',
+    'ok');
 });
 
 app.post('/admin/users/:id/suspend', need('admin'), (req, res) => {
