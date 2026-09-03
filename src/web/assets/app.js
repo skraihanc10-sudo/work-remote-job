@@ -56,3 +56,42 @@
     update();
   }
 })();
+
+/* Support conversation: pull in new messages so a reply appears without a
+   refresh. Polling, not a socket - a support queue this size does not need one,
+   and the page still works if this never runs. */
+(function () {
+  'use strict';
+  var body = document.getElementById('chat-body');
+  if (!body) return;
+
+  var ticket = body.dataset.ticket;
+  var last = Number(body.dataset.last) || 0;
+  body.scrollTop = body.scrollHeight;
+
+  function add(m) {
+    var wrap = document.createElement('div');
+    wrap.className = 'msg ' + (m.from_staff ? 'staff' : 'mine');
+    var who = document.createElement('div');
+    who.className = 'who';
+    who.textContent = m.from_staff ? 'Support' : 'You';
+    var bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = m.body;
+    wrap.appendChild(who);
+    wrap.appendChild(bubble);
+    body.appendChild(wrap);
+  }
+
+  setInterval(function () {
+    if (document.hidden) return;
+    fetch('/api/support/' + ticket + '/messages?after=' + last, { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.messages || !d.messages.length) return;
+        d.messages.forEach(function (m) { add(m); last = m.id; });
+        body.scrollTop = body.scrollHeight;
+      })
+      .catch(function () { /* offline for a moment; the next tick retries */ });
+  }, 6000);
+})();

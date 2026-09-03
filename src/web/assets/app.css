@@ -292,3 +292,66 @@ tr.flagged { background: var(--amber-bg); }
   h1 { font-size: 23px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* ---------------------------------------------------------------- sign in */
+.signin { text-align: center; }
+.signin h1 { margin-bottom: 8px; }
+.signin .muted { margin-bottom: 22px; }
+.google-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 12px;
+  width: 100%; background: var(--card); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 13px 20px; font-weight: 600; font-size: 15.5px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.google-btn:hover { background: var(--sunk); text-decoration: none; border-color: var(--muted); }
+.signin .why { text-align: left; margin-top: 26px; }
+.signin .why p:last-child { margin-bottom: 0; }
+
+/* ----------------------------------------------------------- pick a role */
+.pick-role { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 22px; }
+.pick {
+  text-align: left; background: var(--card); border: 1px solid var(--line);
+  border-radius: 10px; padding: 20px; cursor: pointer; font: inherit;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.pick:hover { border-color: var(--green); }
+.pick b { font-family: var(--head); font-size: 17px; }
+.pick span { color: var(--muted); font-size: 14px; }
+
+/* ------------------------------------------------------------- notices */
+.alert.notice { display: flex; gap: 18px; align-items: flex-start; justify-content: space-between; text-align: left; }
+.notice-body { margin: 6px 0 8px; font-size: 14px; line-height: 1.6; }
+.alert.notice form { flex: none; }
+
+/* --------------------------------------------------------------- support */
+.tg-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.tg {
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px 18px; display: flex; flex-direction: column; gap: 2px; color: inherit;
+}
+.tg:hover { border-color: var(--blue); text-decoration: none; }
+.tg b { font-family: var(--head); font-size: 15px; }
+.tg span { color: var(--muted); font-size: 13px; }
+
+.chat-body {
+  padding: 18px 20px; display: flex; flex-direction: column; gap: 14px;
+  max-height: 60vh; overflow-y: auto;
+}
+.msg { max-width: 82%; }
+.msg.mine { align-self: flex-end; }
+.msg.staff { align-self: flex-start; }
+.msg .who { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.msg.mine .who { text-align: right; }
+.msg .bubble {
+  background: var(--sunk); border-radius: 12px; padding: 10px 14px;
+  font-size: 14.5px; line-height: 1.6; white-space: normal;
+}
+.msg.staff .bubble { background: var(--green-bg); color: var(--ink); }
+.chat-form { display: flex; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line-soft); align-items: flex-end; }
+.chat-form textarea { flex: 1; }
+
+@media (max-width: 700px) {
+  .pick-role { grid-template-columns: 1fr; }
+  .alert.notice { flex-direction: column; }
+}

@@ -17,6 +17,7 @@ const multer = require('multer');
 
 const { db, DATA_DIR, getSetting, setSetting, numSetting, audit } = require('./lib/db');
 const auth = require('./lib/auth');
+const google = require('./lib/google');
 const money = require('./lib/money');
 const spam = require('./lib/antispam');
 const V = require('./lib/views');
@@ -88,7 +89,13 @@ function flashOf(req) {
 
 function send(req, res, opts) {
   res.setHeader('Cache-Control', 'no-store');
-  res.send(V.layout({ ...opts, user: req.user, flash: flashOf(req) }));
+  res.send(V.layout({
+    ...opts,
+    user: req.user,
+    flash: flashOf(req),
+    notices: req.user ? auth.unseenNotices(req.user.id) : [],
+    csrf: csrf(req),
+  }));
 }
 
 function back(res, url, msg, kind) {
@@ -385,6 +392,16 @@ app.get('/rules', (req, res) => send(req, res, {
      finished faster than the job's minimum time is flagged for the buyer to look at.
      It is not automatically rejected - but it is not hidden either.</p>
 
+  <h2>One person, one account</h2>
+  <p>Sign-in is Google only, and one Google account is one account here. Running
+     several accounts to take the same job more than once is the thing that gets
+     everybody involved closed, not just the extra one.</p>
+  <p>We do record which connection each sign-in came from. If several accounts share
+     one, everybody on it is <b>told</b> - not blocked. Shared wifi, families, offices
+     and mobile networks all produce this honestly, so it is never treated as proof
+     of anything on its own. If it applies to you, message support and it is noted on
+     your account before it ever becomes a question.</p>
+
   <h2>Proof must be your own</h2>
   <p>The same proof text reused across tasks is detected and flagged. Sending someone
      else's screenshot is fraud, not a shortcut.</p>
@@ -404,81 +421,184 @@ app.get('/rules', (req, res) => send(req, res, {
 }));
 
 // ======================================================================
-// ACCOUNTS
+// SIGN IN  (Google only - there are no passwords anywhere in this app)
 // ======================================================================
-app.get('/register', (req, res) => {
+app.get(['/login', '/register'], (req, res) => {
   if (req.user) return res.redirect('/');
-  const role = req.query.role === 'merchant' ? 'merchant' : 'worker';
-  send(req, res, {
-    title: 'Create an account',
-    body: `
-<div class="narrow">
-  <h1>Create an account</h1>
-  <div class="role-switch">
-    <a href="/register?role=worker" class="${role === 'worker' ? 'on' : ''}">I want to work</a>
-    <a href="/register?role=merchant" class="${role === 'merchant' ? 'on' : ''}">I want to hire</a>
-  </div>
-  <form method="post" action="/register" class="card pad">
-    <input type="hidden" name="role" value="${role}">
-    ${V.field({ label: 'Name', name: 'name', required: true })}
-    ${V.field({ label: 'Email', name: 'email', type: 'email', required: true })}
-    ${V.field({ label: 'Password', name: 'password', type: 'password', required: true, hint: 'At least 8 characters' })}
-    ${V.field({ label: 'Country', name: 'country', placeholder: 'Bangladesh' })}
-    <button class="btn btn-lg" type="submit">Create account</button>
-  </form>
-  <p class="muted">Already have one? <a href="/login">Sign in</a></p>
-</div>`,
-  });
-});
+  const next = String(req.query.next || '');
 
-app.post('/register', (req, res) => {
-  try {
-    const id = auth.register(req.body);
-    const s = auth.startSession(id);
-    res.setHeader('Set-Cookie',
-      `wrj_session=${s.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${s.maxAge}`);
-    res.redirect(req.body.role === 'merchant' ? '/merchant?msg=Welcome.%20Add%20funds%20to%20post%20your%20first%20job.' : '/worker');
-  } catch (err) {
-    fail(res, err.message);
+  if (!google.configured()) {
+    return send(req, res, {
+      title: 'Sign in',
+      body: `<div class="narrow"><div class="card pad">
+        <h1>Sign-in is not set up yet</h1>
+        <p class="muted">This site uses Google sign-in only. The owner needs to add
+           <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> before anyone can sign in.</p>
+        <p class="muted">The steps are in the README.</p>
+      </div></div>`,
+    });
   }
-});
 
-app.get('/login', (req, res) => {
-  if (req.user) return res.redirect('/');
   send(req, res, {
     title: 'Sign in',
     body: `
-<div class="narrow">
+<div class="narrow signin">
   <h1>Sign in</h1>
-  <form method="post" action="/login" class="card pad">
-    <input type="hidden" name="next" value="${V.esc(req.query.next || '')}">
-    ${V.field({ label: 'Email', name: 'email', type: 'email', required: true })}
-    ${V.field({ label: 'Password', name: 'password', type: 'password', required: true })}
-    <button class="btn btn-lg" type="submit">Sign in</button>
-  </form>
-  <p class="muted">New here? <a href="/register">Create an account</a></p>
+  <p class="muted">One button for everything. If you have never been here before this
+     creates your account; if you have, it signs you in.</p>
+
+  <a class="google-btn" href="/auth/google${next ? '?next=' + encodeURIComponent(next) : ''}">
+    <svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true">
+      <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.2 17.7 9.5 24 9.5z"/>
+      <path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.4-4.7 7l7.6 5.9c4.4-4.1 6.8-10.1 6.8-17.3z"/>
+      <path fill="#FBBC05" d="M10.4 28.7c-.5-1.4-.8-2.9-.8-4.7s.3-3.3.8-4.7l-7.8-6.1C.9 16.4 0 20.1 0 24s.9 7.6 2.6 10.8l7.8-6.1z"/>
+      <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.8 2.3-8.3 2.3-6.3 0-11.7-3.7-13.6-9.1l-7.8 6.1C6.5 42.6 14.6 48 24 48z"/>
+    </svg>
+    <span>Continue with Google</span>
+  </a>
+
+  <div class="card pad why">
+    <h2>Why only Google?</h2>
+    <p class="muted">Anyone can invent a name and a phone number. A Google account is
+       harder to mass-produce, so it is much more work to run a crowd of fake accounts
+       here &mdash; which is what protects the people doing real work.</p>
+    <p class="muted">We never see your Google password. We receive your name, email
+       address and profile picture, and nothing else.</p>
+  </div>
 </div>`,
   });
 });
 
-app.post('/login', (req, res) => {
+app.get('/auth/google', (req, res) => {
+  if (!google.configured()) return fail(res, 'Google sign-in is not configured yet.');
+  const state = google.newState();
+  const next = String(req.query.next || '');
+  // The state lives in a short cookie and must come back unchanged, which is
+  // what stops somebody sending a victim a pre-made sign-in link.
+  res.setHeader('Set-Cookie', [
+    `wrj_oauth=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`,
+    `wrj_next=${encodeURIComponent(next)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`,
+  ]);
+  res.redirect(google.authUrl(state));
+});
+
+app.get('/auth/google/callback', async (req, res) => {
+  const jar = cookies(req);
+  const expire = 'wrj_oauth=; HttpOnly; Path=/; Max-Age=0';
+
   try {
-    const user = auth.login(req.body.email, req.body.password);
-    const s = auth.startSession(user.id);
-    res.setHeader('Set-Cookie',
-      `wrj_session=${s.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${s.maxAge}`);
-    audit(user.id, 'login', `user:${user.id}`, null, req.ip);
-    const next = String(req.body.next || '');
+    if (req.query.error) throw new Error('Sign-in was cancelled.');
+    const state = String(req.query.state || '');
+    if (!state || !jar.wrj_oauth || state !== jar.wrj_oauth) {
+      throw new Error('That sign-in link did not come from here. Start again from the sign-in page.');
+    }
+    const code = String(req.query.code || '');
+    if (!code) throw new Error('Google did not send a sign-in code.');
+
+    const profile = await google.exchange(code);
+    const result = auth.signInWithGoogle(profile, req.ip);
+    const s = auth.startSession(result.user.id);
+    auth.recordLogin(result.user.id, req.ip, req.get('user-agent'));
+
+    res.setHeader('Set-Cookie', [
+      `wrj_session=${s.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${s.maxAge}`,
+      expire,
+      'wrj_next=; HttpOnly; Path=/; Max-Age=0',
+    ]);
+    audit(result.user.id, result.created ? 'signup' : 'login', `user:${result.user.id}`, null, req.ip);
+
+    if (result.created && result.user.role !== 'admin') return res.redirect('/welcome');
+    const next = decodeURIComponent(jar.wrj_next || '');
     res.redirect(next.startsWith('/') ? next : '/');
   } catch (err) {
+    res.setHeader('Set-Cookie', expire);
     fail(res, err.message);
   }
+});
+
+/* First visit: choose a side. Only offered while the account has done nothing,
+   so nobody can flip roles to escape a history. */
+function hasActivity(userId) {
+  const a = db.prepare('SELECT COUNT(*) AS n FROM submissions WHERE worker_id = ?').get(userId).n;
+  const b = db.prepare('SELECT COUNT(*) AS n FROM jobs WHERE merchant_id = ?').get(userId).n;
+  const c = db.prepare('SELECT COUNT(*) AS n FROM ledger WHERE user_id = ?').get(userId).n;
+  return a + b + c > 0;
+}
+
+app.get('/welcome', need(), (req, res) => {
+  if (req.user.role === 'admin' || hasActivity(req.user.id)) return res.redirect('/');
+  send(req, res, {
+    title: 'Welcome',
+    body: `
+<div class="narrow-wide">
+  <h1>Welcome, ${V.esc(req.user.name.split(' ')[0])}</h1>
+  <p class="lede">Which side are you on? This can only be changed while your account is
+     still empty, so pick the one you actually came for.</p>
+  <form method="post" action="/welcome" class="pick-role">
+    ${csrfField(req)}
+    <button class="pick" name="role" value="worker" type="submit">
+      <b>I want to work</b>
+      <span>Do small tasks and get paid when the buyer approves them.</span>
+    </button>
+    <button class="pick" name="role" value="merchant" type="submit">
+      <b>I want to hire</b>
+      <span>Post tasks, fund them up front, and review the proof that comes back.</span>
+    </button>
+  </form>
+</div>`,
+  });
+});
+
+app.post('/welcome', need(), (req, res) => {
+  const role = req.body.role === 'merchant' ? 'merchant' : 'worker';
+  if (req.user.role === 'admin') return res.redirect('/');
+  if (hasActivity(req.user.id)) return fail(res, 'Your account has already been used, so the role is fixed.');
+  db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, req.user.id);
+  audit(req.user.id, 'role_chosen', `user:${req.user.id}`, { role }, req.ip);
+  res.redirect(role === 'merchant' ? '/merchant' : '/worker');
+});
+
+/* Local development only.
+
+   Google sign-in needs credentials and a public redirect URI, which is a poor
+   fit for working offline. This creates a session without Google - and it is
+   fenced in three ways, all of which must hold:
+
+     ALLOW_DEV_LOGIN=1 must be set explicitly,
+     NODE_ENV must not be 'production',
+     and the request must come from this machine.
+
+   It is never reachable on a deployed site. If you find yourself wanting to
+   relax any of these, do not - configure Google instead.
+*/
+app.get('/dev-login', (req, res) => {
+  const enabled = process.env.ALLOW_DEV_LOGIN === '1' && process.env.NODE_ENV !== 'production';
+  const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.ip);
+  if (!enabled || !local) return res.status(404).end();
+
+  const email = String(req.query.email || '').trim().toLowerCase();
+  if (!email) return fail(res, 'Add ?email=someone@example.com');
+
+  const user = db.prepare('SELECT * FROM users WHERE lower(email) = ?').get(email);
+  if (!user) return fail(res, 'No account with that email. Run the seed script first.');
+
+  const s = auth.startSession(user.id);
+  auth.recordLogin(user.id, req.ip, 'dev-login');
+  res.setHeader('Set-Cookie',
+    `wrj_session=${s.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${s.maxAge}`);
+  audit(user.id, 'dev_login', `user:${user.id}`, null, req.ip);
+  res.redirect('/');
 });
 
 app.get('/logout', (req, res) => {
   auth.endSession(req.token);
   res.setHeader('Set-Cookie', 'wrj_session=; HttpOnly; Path=/; Max-Age=0');
   res.redirect('/');
+});
+
+app.post('/notices/:id/seen', need(), (req, res) => {
+  auth.markNoticeSeen(Number(req.params.id), req.user.id);
+  back(res, req.get('referer') || '/');
 });
 
 // ======================================================================
@@ -1403,6 +1523,260 @@ app.post('/admin/users/:id/restore', need('admin'), (req, res) => {
     .run(Number(req.params.id));
   audit(req.user.id, 'restore', `user:${req.params.id}`, null, req.ip);
   back(res, '/admin/users', 'Restored, strikes cleared.', 'ok');
+});
+
+// ======================================================================
+// SUPPORT
+// ======================================================================
+function telegramLinks() {
+  const channel = getSetting('telegram_channel', '');
+  const support = getSetting('telegram_support', '');
+  if (!channel && !support) return '';
+  return `<div class="tg-row">
+    ${channel ? `<a class="tg" href="${V.esc(channel)}" target="_blank" rel="noopener">
+      <b>Telegram channel</b><span>Announcements and new jobs</span></a>` : ''}
+    ${support ? `<a class="tg" href="${V.esc(support)}" target="_blank" rel="noopener">
+      <b>Telegram support</b><span>Message us directly</span></a>` : ''}
+  </div>`;
+}
+
+app.get('/support', need(), (req, res) => {
+  const tickets = db.prepare(
+    'SELECT * FROM tickets WHERE user_id = ? ORDER BY updated_at DESC LIMIT 50'
+  ).all(req.user.id);
+
+  send(req, res, {
+    title: 'Support', active: 'support',
+    body: `
+<div class="page-head"><div><h1>Support</h1>
+  <p class="muted">Replies land right here, and we usually answer within a day.</p></div></div>
+
+${telegramLinks()}
+
+<div class="two">
+  <div class="card pad">
+    <h2>Start a conversation</h2>
+    <form method="post" action="/support">
+      ${csrfField(req)}
+      ${V.field({ label: 'What is it about', name: 'topic', type: 'select', options: [
+        { value: 'payment', label: 'Payment or withdrawal' },
+        { value: 'rejection', label: 'A task was rejected unfairly' },
+        { value: 'account', label: 'Account or suspension' },
+        { value: 'shared_ip', label: 'Shared internet connection' },
+        { value: 'job', label: 'A problem with a job' },
+        { value: 'other', label: 'Something else' } ] })}
+      ${V.field({ label: 'Subject', name: 'subject', required: true, placeholder: 'Short summary' })}
+      ${V.field({ label: 'Message', name: 'body', type: 'textarea', rows: 6, required: true,
+        hint: 'Include task or job numbers if you have them - it gets answered faster.' })}
+      <button class="btn" type="submit">Send</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Your conversations</h2></div>
+    ${tickets.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>Subject</th><th>State</th><th>Updated</th></tr></thead>
+      <tbody>${tickets.map(t => `<tr>
+        <td><a class="link" href="/support/${t.id}">${V.esc(t.subject)}</a></td>
+        <td>${V.statusPill(t.status)}</td>
+        <td class="dim">${V.ago(t.updated_at)}</td>
+      </tr>`).join('')}</tbody></table></div>`
+      : '<div class="pad muted">Nothing yet.</div>'}
+  </div>
+</div>`,
+  });
+});
+
+app.post('/support', need(), (req, res) => {
+  const subject = String(req.body.subject || '').trim().slice(0, 120);
+  const body = String(req.body.body || '').trim().slice(0, 4000);
+  if (!subject || !body) return fail(res, 'Both a subject and a message are needed.');
+
+  const open = db.prepare(
+    "SELECT COUNT(*) AS n FROM tickets WHERE user_id = ? AND status != 'closed'"
+  ).get(req.user.id).n;
+  if (open >= 5) {
+    return fail(res, 'You already have five open conversations. Reply in one of those instead.');
+  }
+
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const info = db.prepare('INSERT INTO tickets (user_id, subject, topic) VALUES (?, ?, ?)')
+      .run(req.user.id, subject, String(req.body.topic || 'other'));
+    const id = Number(info.lastInsertRowid);
+    db.prepare('INSERT INTO ticket_messages (ticket_id, sender_id, from_staff, body) VALUES (?, ?, 0, ?)')
+      .run(id, req.user.id, body);
+    db.exec('COMMIT');
+    res.redirect('/support/' + id);
+  } catch (err) {
+    db.exec('ROLLBACK');
+    fail(res, err.message);
+  }
+});
+
+function chatThread(ticket, messages, req, staffView) {
+  return `
+<div class="chat card">
+  <div class="card-head">
+    <div><b>${V.esc(ticket.subject)}</b>
+      <div class="dim">${V.esc(ticket.topic || '')} · opened ${V.ago(ticket.created_at)}</div></div>
+    ${V.statusPill(ticket.status)}
+  </div>
+  <div class="chat-body" id="chat-body" data-ticket="${ticket.id}" data-last="${messages.length ? messages[messages.length - 1].id : 0}">
+    ${messages.map(m => `
+      <div class="msg ${m.from_staff ? 'staff' : 'mine'}">
+        <div class="who">${m.from_staff ? 'Support' : V.esc(ticket.user_name || 'You')}
+          <span class="dim">${V.ago(m.created_at)}</span></div>
+        <div class="bubble">${V.esc(m.body).replace(/\n/g, '<br>')}</div>
+      </div>`).join('')}
+  </div>
+  ${ticket.status === 'closed' ? `<div class="pad muted">This conversation is closed.</div>` : `
+  <form method="post" action="/support/${ticket.id}/reply" class="chat-form">
+    ${csrfField(req)}
+    <textarea name="body" rows="2" required placeholder="Write a reply"></textarea>
+    <button class="btn" type="submit">Send</button>
+  </form>`}
+</div>`;
+}
+
+app.get('/support/:id', need(), (req, res) => {
+  const id = Number(req.params.id);
+  const ticket = db.prepare(`
+    SELECT t.*, u.name AS user_name FROM tickets t JOIN users u ON u.id = t.user_id WHERE t.id = ?
+  `).get(id);
+  if (!ticket) return fail(res, 'No such conversation.');
+  if (ticket.user_id !== req.user.id && req.user.role !== 'admin') {
+    return fail(res, 'That conversation is not yours.');
+  }
+  const messages = db.prepare('SELECT * FROM ticket_messages WHERE ticket_id = ? ORDER BY id').all(id);
+
+  send(req, res, {
+    title: ticket.subject, active: req.user.role === 'admin' ? 'support' : 'support',
+    body: `<a class="back" href="${req.user.role === 'admin' ? '/admin/support' : '/support'}">&larr; Back</a>
+      ${chatThread(ticket, messages, req, req.user.role === 'admin')}`,
+  });
+});
+
+/* Polled by the open conversation so a reply appears without a refresh. Cheap:
+   one indexed lookup, and only while somebody actually has the page open. */
+app.get('/api/support/:id/messages', need(), (req, res) => {
+  const id = Number(req.params.id);
+  const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(id);
+  if (!ticket) return res.status(404).json({ error: 'No such conversation' });
+  if (ticket.user_id !== req.user.id && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Not yours' });
+  }
+  const after = Number(req.query.after) || 0;
+  const rows = db.prepare(
+    'SELECT id, from_staff, body, created_at FROM ticket_messages WHERE ticket_id = ? AND id > ? ORDER BY id'
+  ).all(id, after);
+  res.json({ status: ticket.status, messages: rows });
+});
+
+app.post('/support/:id/reply', need(), (req, res) => {
+  const id = Number(req.params.id);
+  const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(id);
+  if (!ticket) return fail(res, 'No such conversation.');
+
+  const staff = req.user.role === 'admin';
+  if (ticket.user_id !== req.user.id && !staff) return fail(res, 'That conversation is not yours.');
+  if (ticket.status === 'closed') return fail(res, 'That conversation is closed.');
+
+  const body = String(req.body.body || '').trim().slice(0, 4000);
+  if (!body) return fail(res, 'Write something first.');
+
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare('INSERT INTO ticket_messages (ticket_id, sender_id, from_staff, body) VALUES (?, ?, ?, ?)')
+      .run(id, req.user.id, staff ? 1 : 0, body);
+    db.prepare("UPDATE tickets SET status = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(staff ? 'answered' : 'open', id);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    return fail(res, err.message);
+  }
+  res.redirect('/support/' + id);
+});
+
+app.get('/admin/support', need('admin'), (req, res) => {
+  const rows = db.prepare(`
+    SELECT t.*, u.name AS user_name, u.email,
+      (SELECT COUNT(*) FROM ticket_messages WHERE ticket_id = t.id) AS msgs
+    FROM tickets t JOIN users u ON u.id = t.user_id
+    ORDER BY (t.status = 'open') DESC, t.updated_at DESC LIMIT 100
+  `).all();
+
+  send(req, res, {
+    title: 'Support', active: 'support', wide: true,
+    body: `<h1>Support</h1>
+<div class="card"><div class="table-wrap"><table>
+  <thead><tr><th>Subject</th><th>From</th><th>Topic</th><th>Messages</th><th>State</th><th>Updated</th><th></th></tr></thead>
+  <tbody>${rows.map(t => `<tr>
+    <td><a class="link" href="/support/${t.id}">${V.esc(t.subject)}</a></td>
+    <td>${V.esc(t.user_name)}<div class="dim">${V.esc(t.email)}</div></td>
+    <td class="dim">${V.esc(t.topic || '')}</td>
+    <td class="num">${t.msgs}</td>
+    <td>${V.statusPill(t.status)}</td>
+    <td class="dim">${V.ago(t.updated_at)}</td>
+    <td class="right">${t.status !== 'closed' ? `
+      <form method="post" action="/support/${t.id}/close" class="inline">${csrfField(req)}
+        <button class="btn btn-ghost btn-sm" type="submit">Close</button></form>` : ''}</td>
+  </tr>`).join('') || '<tr><td colspan="7" class="muted pad">Nothing here.</td></tr>'}</tbody>
+</table></div></div>`,
+  });
+});
+
+app.post('/support/:id/close', need('admin'), (req, res) => {
+  db.prepare("UPDATE tickets SET status = 'closed', updated_at = datetime('now') WHERE id = ?")
+    .run(Number(req.params.id));
+  back(res, '/admin/support', 'Closed.', 'ok');
+});
+
+// ---------------------------------------------------------- admin: devices
+app.get('/admin/connections', need('admin'), (req, res) => {
+  const ip = req.query.ip ? String(req.query.ip) : null;
+  const min = Number(req.query.min) || 2;
+
+  if (ip) {
+    const accounts = auth.accountsOnIp(ip);
+    return send(req, res, {
+      title: 'Connection', active: 'connections', wide: true,
+      body: `<a class="back" href="/admin/connections">&larr; All connections</a>
+<h1 class="mono">${V.esc(ip)}</h1>
+<p class="muted">${accounts.length} account${accounts.length === 1 ? '' : 's'} have signed in from here.</p>
+<div class="alert alert-info">Shared addresses are normal &mdash; mobile networks, offices and
+  families all produce this. Treat it as one signal among several, never on its own.</div>
+<div class="card"><div class="table-wrap"><table>
+  <thead><tr><th>User</th><th>Role</th><th>Joined</th><th>Sign-ins</th><th>Last seen</th><th>State</th></tr></thead>
+  <tbody>${accounts.map(a => `<tr>
+    <td>${V.esc(a.name)}<div class="dim">${V.esc(a.email)}</div></td>
+    <td>${V.esc(a.role)}</td><td class="dim">${V.ago(a.created_at)}</td>
+    <td class="num">${a.logins}</td><td class="dim">${V.ago(a.last_login)}</td>
+    <td>${V.statusPill(a.status)}</td>
+  </tr>`).join('')}</tbody></table></div></div>`,
+    });
+  }
+
+  const rows = auth.sharedIps(min);
+  send(req, res, {
+    title: 'Connections', active: 'connections', wide: true,
+    body: `<div class="page-head"><div><h1>Connections</h1>
+      <p class="muted">Addresses with more than one account. Evidence, not a verdict.</p></div>
+      <form class="filters" method="get">
+        <select name="min">${[2, 3, 5, 10].map(n =>
+          `<option value="${n}"${min === n ? ' selected' : ''}>${n}+ accounts</option>`).join('')}</select>
+        <button class="btn btn-ghost" type="submit">Show</button></form></div>
+<div class="card"><div class="table-wrap"><table>
+  <thead><tr><th>Address</th><th>Accounts</th><th>Last seen</th><th></th></tr></thead>
+  <tbody>${rows.map(r => `<tr>
+    <td class="mono">${V.esc(r.ip)}</td>
+    <td class="num ${r.accounts >= 5 ? 'bad' : ''}">${r.accounts}</td>
+    <td class="dim">${V.ago(r.last_seen)}</td>
+    <td class="right"><a class="link" href="/admin/connections?ip=${encodeURIComponent(r.ip)}">Look</a></td>
+  </tr>`).join('') || '<tr><td colspan="4" class="muted pad">No shared connections.</td></tr>'}</tbody>
+</table></div></div>`,
+  });
 });
 
 // ======================================================================

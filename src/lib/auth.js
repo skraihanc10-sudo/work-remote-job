@@ -1,69 +1,71 @@
-/* Accounts and sessions.
+/* Accounts, sessions, and the device history behind them.
 
-   Passwords are hashed with scrypt from Node's own crypto - no dependency, and
-   deliberately slow, which is the point. Sessions are random tokens in the
-   database rather than signed cookies, so signing somebody out actually signs
-   them out.
+   There are no passwords. Sign-in is Google only, so identity is a Google
+   account id and there is no credential here to steal, guess or reset.
+
+   Sessions are random tokens in the database rather than signed cookies, so
+   signing somebody out actually signs them out.
 */
 
 const crypto = require('crypto');
-const { db, audit } = require('./db');
+const { db, getSetting, numSetting, audit } = require('./db');
 const antispam = require('./antispam');
 
 const SESSION_DAYS = 30;
 
-function hash(password) {
-  const salt = crypto.randomBytes(16);
-  const derived = crypto.scryptSync(String(password), salt, 64, { N: 16384, r: 8, p: 1 });
-  return `scrypt$${salt.toString('hex')}$${derived.toString('hex')}`;
+// -------------------------------------------------------------------- roles
+// Admins are named by email in ADMIN_EMAILS, so an admin is made by
+// configuration rather than by anything a visitor can do.
+function adminEmails() {
+  return String(process.env.ADMIN_EMAILS || getSetting('admin_emails', ''))
+    .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
 }
 
-function verify(password, stored) {
-  const parts = String(stored || '').split('$');
-  if (parts.length !== 3 || parts[0] !== 'scrypt') return false;
-  const salt = Buffer.from(parts[1], 'hex');
-  const want = Buffer.from(parts[2], 'hex');
-  const got = crypto.scryptSync(String(password), salt, want.length, { N: 16384, r: 8, p: 1 });
-  return crypto.timingSafeEqual(got, want);
+function isAdminEmail(email) {
+  return adminEmails().includes(String(email || '').toLowerCase());
 }
 
-function validEmail(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(email || '').trim());
-}
+// ----------------------------------------------------------------- sign-in
+/* Find or create the account behind a Google profile.
+   Returns { user, created }. */
+function signInWithGoogle(profile, ip) {
+  let user = db.prepare('SELECT * FROM users WHERE google_sub = ?').get(profile.sub);
 
-function register({ name, email, password, role, country }) {
-  name = String(name || '').trim();
-  email = String(email || '').trim().toLowerCase();
-
-  if (name.length < 2) throw new Error('Enter your name');
-  if (!validEmail(email)) throw new Error('That email address does not look right');
-  if (String(password || '').length < 8) throw new Error('Use at least 8 characters for the password');
-  if (role !== 'worker' && role !== 'merchant') throw new Error('Choose whether you are hiring or working');
-
-  const taken = db.prepare('SELECT id FROM users WHERE lower(email) = ?').get(email);
-  if (taken) throw new Error('An account already uses that email');
-
-  const info = db.prepare(
-    'INSERT INTO users (role, name, email, password_hash, country) VALUES (?, ?, ?, ?, ?)'
-  ).run(role, name, email, hash(password), country || null);
-
-  const id = Number(info.lastInsertRowid);
-  audit(id, 'register', `user:${id}`, { role });
-  return id;
-}
-
-function login(email, password) {
-  const user = db.prepare('SELECT * FROM users WHERE lower(email) = ?')
-    .get(String(email || '').trim().toLowerCase());
-  // Same message either way: telling someone an email exists is a free gift to
-  // anyone testing a list of addresses.
-  if (!user || !verify(password, user.password_hash)) {
-    throw new Error('Email or password is wrong');
+  // Someone whose account predates Google sign-in, matched by email once.
+  if (!user) {
+    const byEmail = db.prepare('SELECT * FROM users WHERE lower(email) = ?').get(profile.email);
+    if (byEmail) {
+      db.prepare('UPDATE users SET google_sub = ?, avatar = ?, email_verified = 1 WHERE id = ?')
+        .run(profile.sub, profile.picture, byEmail.id);
+      user = db.prepare('SELECT * FROM users WHERE id = ?').get(byEmail.id);
+    }
   }
+
+  let created = false;
+  if (!user) {
+    const role = isAdminEmail(profile.email) ? 'admin' : null;   // null = they choose next
+    const info = db.prepare(`
+      INSERT INTO users (role, name, email, password_hash, google_sub, avatar,
+                         email_verified, signup_ip, last_ip)
+      VALUES (?, ?, ?, '', ?, ?, 1, ?, ?)
+    `).run(role || 'worker', profile.name, profile.email, profile.sub, profile.picture, ip, ip);
+    user = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(info.lastInsertRowid));
+    created = true;
+    audit(user.id, 'account_created', `user:${user.id}`, { via: 'google' }, ip);
+  } else {
+    // Keep the name and picture current, and promote if the email was added to
+    // ADMIN_EMAILS after the account existed.
+    const role = isAdminEmail(profile.email) && user.role !== 'admin' ? 'admin' : user.role;
+    db.prepare('UPDATE users SET name = ?, avatar = ?, email_verified = 1, role = ? WHERE id = ?')
+      .run(profile.name, profile.picture, role, user.id);
+    user.role = role;
+  }
+
   if (user.status === 'banned') throw new Error('This account has been closed.');
-  return user;
+  return { user, created };
 }
 
+// --------------------------------------------------------------- sessions
 function startSession(userId) {
   const token = crypto.randomBytes(32).toString('base64url');
   const expires = new Date(Date.now() + SESSION_DAYS * 86400000)
@@ -93,4 +95,94 @@ function sweepSessions() {
   db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now);
 }
 
-module.exports = { hash, verify, register, login, startSession, endSession, userFor, sweepSessions };
+// ------------------------------------------------------------ ip history
+/* Record the sign-in and, if this connection now has several accounts on it,
+   tell everybody on it once.
+
+   Deliberately a notice and not a block. On mobile networks here thousands of
+   people share one address, and a whole family shares one wifi. Treating that
+   as fraud would punish the honest majority to catch a few. What it does do is
+   make the pattern visible - to the people involved, so they can explain
+   themselves before it becomes a problem, and to an admin looking at a report.
+*/
+function recordLogin(userId, ip, userAgent) {
+  db.prepare('INSERT INTO logins (user_id, ip, user_agent) VALUES (?, ?, ?)')
+    .run(userId, ip || null, String(userAgent || '').slice(0, 300));
+  db.prepare("UPDATE users SET last_ip = ?, last_seen_at = datetime('now') WHERE id = ?")
+    .run(ip || null, userId);
+
+  if (!ip) return null;
+  const limit = numSetting('ip_accounts_warn');
+
+  const peers = db.prepare(`
+    SELECT DISTINCT u.id, u.name, u.ip_notice_at
+    FROM logins l JOIN users u ON u.id = l.user_id
+    WHERE l.ip = ? AND u.role != 'admin'
+  `).all(ip);
+
+  if (peers.length < limit) return null;
+
+  // Told once per account, not on every sign-in.
+  const insert = db.prepare(`
+    INSERT INTO notices (user_id, kind, title, body) VALUES (?, 'ip_shared', ?, ?)
+  `);
+  const title = `${peers.length} accounts have signed in from your connection`;
+  const body = `Our security check has seen ${peers.length} different accounts signing in from the same internet connection as yours.
+
+This is often completely innocent - a shared wifi, a family, an office, or a mobile network that gives thousands of people the same address. Nothing has been restricted and you do not need to do anything.
+
+We are telling you because multiple accounts run by one person is against the rules, and if that ever comes up we would rather you had already explained the situation. If this is a shared connection, message support and it will be noted on your account.`;
+
+  let notified = 0;
+  for (const peer of peers) {
+    if (peer.ip_notice_at) continue;
+    insert.run(peer.id, title, body);
+    db.prepare("UPDATE users SET ip_notice_at = datetime('now') WHERE id = ?").run(peer.id);
+    notified++;
+  }
+  if (notified) {
+    audit(null, 'ip_notice', `ip:${ip}`, { accounts: peers.length, notified }, ip);
+  }
+  return { ip, accounts: peers.length, notified };
+}
+
+function accountsOnIp(ip) {
+  if (!ip) return [];
+  return db.prepare(`
+    SELECT u.id, u.name, u.email, u.role, u.status, u.created_at,
+           COUNT(l.id) AS logins, MAX(l.created_at) AS last_login
+    FROM logins l JOIN users u ON u.id = l.user_id
+    WHERE l.ip = ? GROUP BY u.id ORDER BY last_login DESC
+  `).all(ip);
+}
+
+/* Connections with more than one account on them, newest first. What an admin
+   actually wants to look at. */
+function sharedIps(minAccounts) {
+  return db.prepare(`
+    SELECT l.ip, COUNT(DISTINCT l.user_id) AS accounts,
+           MAX(l.created_at) AS last_seen
+    FROM logins l JOIN users u ON u.id = l.user_id
+    WHERE l.ip IS NOT NULL AND u.role != 'admin'
+    GROUP BY l.ip HAVING accounts >= ?
+    ORDER BY accounts DESC, last_seen DESC LIMIT 100
+  `).all(minAccounts || 2);
+}
+
+// ------------------------------------------------------------------ notices
+function unseenNotices(userId) {
+  return db.prepare('SELECT * FROM notices WHERE user_id = ? AND seen_at IS NULL ORDER BY id DESC')
+    .all(userId);
+}
+
+function markNoticeSeen(id, userId) {
+  db.prepare("UPDATE notices SET seen_at = datetime('now') WHERE id = ? AND user_id = ?")
+    .run(id, userId);
+}
+
+module.exports = {
+  isAdminEmail, adminEmails, signInWithGoogle,
+  startSession, endSession, userFor, sweepSessions,
+  recordLogin, accountsOnIp, sharedIps,
+  unseenNotices, markNoticeSeen,
+};

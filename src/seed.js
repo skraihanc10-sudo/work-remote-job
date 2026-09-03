@@ -1,52 +1,56 @@
-/* Creates the admin account, and optionally some demo data to click around in.
+/* Sets up categories and, optionally, demo data to click around in.
 
-     npm run seed                    admin only
-     npm run seed -- --demo          admin + sample merchant, workers and jobs
+     npm run seed
+     npm run seed -- --demo
 
-   Safe to run more than once: existing accounts are left alone.
+   There is no admin password to set: sign-in is Google only. An account
+   becomes an admin because its email is listed in ADMIN_EMAILS, checked on
+   every sign-in, so admins are made by configuration rather than by anything
+   a visitor can do.
 */
 
 const { db, audit } = require('./lib/db');
 const auth = require('./lib/auth');
 const money = require('./lib/money');
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@workremotejob.local';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const admins = auth.adminEmails();
 
-function ensure(role, name, email, password, country) {
-  const found = db.prepare('SELECT * FROM users WHERE lower(email) = ?').get(email.toLowerCase());
-  if (found) return found.id;
-  const info = db.prepare(
-    'INSERT INTO users (role, name, email, password_hash, country) VALUES (?, ?, ?, ?, ?)'
-  ).run(role, name, email, auth.hash(password), country || null);
-  return Number(info.lastInsertRowid);
-}
-
-// ------------------------------------------------------------------- admin
-if (!ADMIN_PASSWORD) {
-  console.error('\n  Set an admin password first:\n');
-  console.error('    ADMIN_PASSWORD=your-password npm run seed\n');
-  process.exit(1);
-}
-if (ADMIN_PASSWORD.length < 8) {
-  console.error('\n  Use at least 8 characters for the admin password.\n');
-  process.exit(1);
-}
-
-const existing = db.prepare("SELECT id FROM users WHERE role = 'admin'").get();
-if (existing) {
-  console.log(`\n  An admin already exists (id ${existing.id}). Left alone.`);
+console.log('');
+if (!admins.length) {
+  console.log('  No admin emails configured.');
+  console.log('  Set ADMIN_EMAILS to the Google address that should run this site:\n');
+  console.log('    ADMIN_EMAILS=you@gmail.com npm start\n');
 } else {
-  const id = ensure('admin', 'Administrator', ADMIN_EMAIL, ADMIN_PASSWORD);
-  audit(id, 'seed_admin', `user:${id}`);
-  console.log(`\n  Admin created\n    email: ${ADMIN_EMAIL}`);
+  console.log('  Admin accounts (created on first Google sign-in):');
+  admins.forEach(e => console.log('    ' + e));
+  // Promote any that already exist.
+  for (const email of admins) {
+    const u = db.prepare('SELECT id, role FROM users WHERE lower(email) = ?').get(email);
+    if (u && u.role !== 'admin') {
+      db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(u.id);
+      audit(null, 'promoted_admin', `user:${u.id}`);
+      console.log(`    (existing account ${email} promoted)`);
+    }
+  }
 }
 
 // -------------------------------------------------------------------- demo
 if (process.argv.includes('--demo')) {
-  const merchant = ensure('merchant', 'Demo Buyer', 'buyer@example.com', 'demo12345', 'Bangladesh');
-  const w1 = ensure('worker', 'Rakib Hasan', 'rakib@example.com', 'demo12345', 'Bangladesh');
-  const w2 = ensure('worker', 'Nusrat Jahan', 'nusrat@example.com', 'demo12345', 'Bangladesh');
+  // Demo accounts have no google_sub, so they can never be signed into. They
+  // exist to make the screens show something real.
+  function demoUser(role, name, email, country) {
+    const found = db.prepare('SELECT id FROM users WHERE lower(email) = ?').get(email);
+    if (found) return found.id;
+    const info = db.prepare(`
+      INSERT INTO users (role, name, email, password_hash, country, email_verified)
+      VALUES (?, ?, ?, '', ?, 1)
+    `).run(role, name, email, country || null);
+    return Number(info.lastInsertRowid);
+  }
+
+  const merchant = demoUser('merchant', 'Demo Buyer', 'buyer@example.com', 'Bangladesh');
+  demoUser('worker', 'Rakib Hasan', 'rakib@example.com', 'Bangladesh');
+  demoUser('worker', 'Nusrat Jahan', 'nusrat@example.com', 'Bangladesh');
 
   if (money.balance(merchant) === 0) {
     money.entry(merchant, 'deposit', 500000, null, 'Demo funds');
@@ -94,10 +98,9 @@ if (process.argv.includes('--demo')) {
   }
 
   console.log(`
-  Demo data ready
-    buyer@example.com   / demo12345   (merchant, funded)
-    rakib@example.com   / demo12345   (worker)
-    nusrat@example.com  / demo12345   (worker)`);
+  Demo data ready - three funded jobs and a buyer to review them.
+  These accounts have no Google identity, so they cannot be signed into;
+  they are there so the job list and dashboards are not empty.`);
 }
 
 console.log('\n  Run:  npm start\n');

@@ -192,6 +192,70 @@ const MIGRATIONS = [
       );
     `,
   },
+  {
+    id: 2,
+    name: 'google sign-in, device history, support',
+    sql: `
+      -- Sign-in is Google-only now. password_hash stays for the column's sake
+      -- but is never written; identity is the Google account id.
+      ALTER TABLE users ADD COLUMN google_sub TEXT;
+      ALTER TABLE users ADD COLUMN avatar TEXT;
+      ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE users ADD COLUMN signup_ip TEXT;
+      ALTER TABLE users ADD COLUMN last_ip TEXT;
+      ALTER TABLE users ADD COLUMN last_seen_at TEXT;
+      ALTER TABLE users ADD COLUMN ip_notice_at TEXT;
+      CREATE UNIQUE INDEX idx_users_google ON users(google_sub) WHERE google_sub IS NOT NULL;
+
+      -- Every sign-in, so an admin can see the pattern rather than a single
+      -- snapshot. Shared IPs are normal here; this is evidence, not a verdict.
+      CREATE TABLE logins (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        ip         TEXT,
+        user_agent TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_logins_ip ON logins(ip, created_at);
+      CREATE INDEX idx_logins_user ON logins(user_id, id DESC);
+
+      -- Support conversations. Polled rather than websockets: a support queue
+      -- of this size does not need a socket per visitor.
+      CREATE TABLE tickets (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        subject    TEXT NOT NULL,
+        topic      TEXT,
+        status     TEXT NOT NULL DEFAULT 'open'
+                   CHECK (status IN ('open','answered','closed')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_tickets_user ON tickets(user_id, id DESC);
+      CREATE INDEX idx_tickets_status ON tickets(status, updated_at DESC);
+
+      CREATE TABLE ticket_messages (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        sender_id  INTEGER REFERENCES users(id),
+        from_staff INTEGER NOT NULL DEFAULT 0,
+        body       TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_tmsg_ticket ON ticket_messages(ticket_id, id);
+
+      CREATE TABLE notices (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        kind       TEXT NOT NULL,
+        title      TEXT NOT NULL,
+        body       TEXT NOT NULL,
+        seen_at    TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_notices_user ON notices(user_id, seen_at, id DESC);
+    `,
+  },
 ];
 
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (
@@ -228,6 +292,11 @@ const DEFAULTS = {
   auto_suspend_window_days: '3',
   strikes_before_suspend: '3',
   suspend_days: '7',
+  // Accounts seen from one IP before the people on it are told about it.
+  // A warning, never a block: shared connections are normal.
+  ip_accounts_warn: '3',
+  telegram_channel: '',
+  telegram_support: '',
 };
 
 function getSetting(key, fallback = null) {

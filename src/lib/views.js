@@ -14,14 +14,20 @@ const esc = s => String(s == null ? '' : s)
 
 const SITE = 'Work Remote Job';
 
+// Newlines to <br>, after escaping. Written once here so no template has to
+// carry an escaped regex around.
+const NL = new RegExp('\n', 'g');
+function br(text) {
+  return esc(text).replace(NL, '<br>');
+}
+
 function nav(user, active) {
   if (!user) {
     return `
       <a href="/jobs"${active === 'jobs' ? ' class="on"' : ''}>Browse jobs</a>
       <a href="/how-it-works"${active === 'how' ? ' class="on"' : ''}>How it works</a>
       <span class="nav-gap"></span>
-      <a href="/login" class="btn btn-ghost btn-sm">Sign in</a>
-      <a href="/register" class="btn btn-sm">Create account</a>`;
+      <a href="/login" class="btn btn-sm">Continue with Google</a>`;
   }
 
   if (user.role === 'admin') {
@@ -30,6 +36,8 @@ function nav(user, active) {
       <a href="/admin/reports"${active === 'reports' ? ' class="on"' : ''}>Reports</a>
       <a href="/admin/money"${active === 'money' ? ' class="on"' : ''}>Money</a>
       <a href="/admin/users"${active === 'users' ? ' class="on"' : ''}>Users</a>
+      <a href="/admin/connections"${active === 'connections' ? ' class="on"' : ''}>Connections</a>
+      <a href="/admin/support"${active === 'support' ? ' class="on"' : ''}>Support</a>
       <span class="nav-gap"></span>
       <span class="who">${esc(user.name)} · admin</span>
       <a href="/logout" class="btn btn-ghost btn-sm">Sign out</a>`;
@@ -41,6 +49,7 @@ function nav(user, active) {
       <a href="/merchant/jobs"${active === 'myjobs' ? ' class="on"' : ''}>My jobs</a>
       <a href="/merchant/review"${active === 'review' ? ' class="on"' : ''}>Review work</a>
       <a href="/wallet"${active === 'wallet' ? ' class="on"' : ''}>Wallet</a>
+      <a href="/support"${active === 'support' ? ' class="on"' : ''}>Support</a>
       <span class="nav-gap"></span>
       <a href="/merchant/jobs/new" class="btn btn-sm">Post a job</a>
       <a href="/logout" class="btn btn-ghost btn-sm">Sign out</a>`;
@@ -51,12 +60,13 @@ function nav(user, active) {
     <a href="/jobs"${active === 'jobs' ? ' class="on"' : ''}>Find work</a>
     <a href="/worker/tasks"${active === 'tasks' ? ' class="on"' : ''}>My tasks</a>
     <a href="/wallet"${active === 'wallet' ? ' class="on"' : ''}>Wallet</a>
+    <a href="/support"${active === 'support' ? ' class="on"' : ''}>Support</a>
     <span class="nav-gap"></span>
     <span class="who">${esc(user.name)}</span>
     <a href="/logout" class="btn btn-ghost btn-sm">Sign out</a>`;
 }
 
-function layout({ title, user, active, body, flash, wide }) {
+function layout({ title, user, active, body, flash, wide, notices, csrf }) {
   const bal = user ? money.balance(user.id) : 0;
   return `<!DOCTYPE html>
 <html lang="en">
@@ -91,6 +101,15 @@ ${user && user.status === 'suspended' ? `
 
 ${flash ? `<div class="wrap"><div class="alert alert-${flash.kind || 'info'}">${esc(flash.text)}</div></div>` : ''}
 
+${(notices || []).map(n => `<div class="wrap"><div class="alert alert-warn notice">
+  <div><b>${esc(n.title)}</b><div class="notice-body">${br(n.body)}</div>
+    <a class="link" href="/support">Message support</a></div>
+  <form method="post" action="/notices/${n.id}/seen">
+    ${csrf ? `<input type="hidden" name="_csrf" value="${esc(csrf)}">` : ''}
+    <button class="btn btn-ghost btn-sm" type="submit">Got it</button>
+  </form>
+</div></div>`).join('')}
+
 <main class="wrap${wide ? ' wrap-wide' : ''}">
 ${body}
 </main>
@@ -101,6 +120,7 @@ ${body}
     <span class="foot-links">
       <a href="/how-it-works">How it works</a>
       <a href="/rules">Rules</a>
+      <a href="/support">Support</a>
     </span>
   </div>
 </footer>
@@ -161,4 +181,4 @@ function mmss(seconds) {
   return `${m}m ${String(s).padStart(2, '0')}s`;
 }
 
-module.exports = { esc, layout, card, field, statusPill, money: money_, ago, mmss, SITE };
+module.exports = { esc, br, layout, card, field, statusPill, money: money_, ago, mmss, SITE };
