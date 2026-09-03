@@ -240,8 +240,8 @@ app.get('/', (req, res) => {
     <p class="lede">Buyers fund every job before it goes live, so the money for your
        task is already set aside before you start it.</p>
     <div class="btn-row">
-      <a href="/register?role=worker" class="btn btn-lg">Start working</a>
-      <a href="/register?role=merchant" class="btn btn-ghost btn-lg">Post a job</a>
+      <a href="/login?want=worker" class="btn btn-lg">Start working</a>
+      <a href="/login?want=merchant" class="btn btn-ghost btn-lg">Post a job</a>
     </div>
   </div>
   <div class="hero-stats">
@@ -498,8 +498,11 @@ app.get(['/login', '/register'], (req, res) => {
   <h1>Sign in</h1>
   <p class="muted">One button for everything. If you have never been here before this
      creates your account; if you have, it signs you in.</p>
+  ${req.query.want === 'merchant'
+    ? '<div class="alert alert-info">You are signing up to <b>hire</b>. You can change this later while your account is still empty.</div>'
+    : ''}
 
-  <a class="google-btn" href="/auth/google${next ? '?next=' + encodeURIComponent(next) : ''}">
+  <a class="google-btn" href="/auth/google?want=${V.esc(req.query.want === 'merchant' ? 'merchant' : '')}${next ? '&next=' + encodeURIComponent(next) : ''}">
     <svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true">
       <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.2 17.7 9.5 24 9.5z"/>
       <path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.4-4.7 7l7.6 5.9c4.4-4.1 6.8-10.1 6.8-17.3z"/>
@@ -525,11 +528,17 @@ app.get('/auth/google', (req, res) => {
   if (!google.configured()) return fail(res, 'Google sign-in is not configured yet.');
   const state = google.newState();
   const next = String(req.query.next || '');
+  // Somebody who pressed "Post a job" meant to hire. Google does not carry that
+  // for us, so it rides along in a short cookie and is applied when the account
+  // is created - otherwise every new account silently becomes a worker and the
+  // button lied.
+  const want = req.query.want === 'merchant' ? 'merchant' : '';
   // The state lives in a short cookie and must come back unchanged, which is
   // what stops somebody sending a victim a pre-made sign-in link.
   res.setHeader('Set-Cookie', [
     `wrj_oauth=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`,
     `wrj_next=${encodeURIComponent(next)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`,
+    `wrj_want=${want}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`,
   ]);
   res.redirect(google.authUrl(state));
 });
@@ -552,10 +561,18 @@ app.get('/auth/google/callback', async (req, res) => {
     const s = auth.startSession(result.user.id);
     auth.recordLogin(result.user.id, req.ip, req.get('user-agent'));
 
+    // Apply the side they picked before signing in, but only on a brand new
+    // account - never silently re-role somebody who already has a history.
+    if (result.created && jar.wrj_want === 'merchant' && result.user.role !== 'admin') {
+      db.prepare("UPDATE users SET role = 'merchant' WHERE id = ?").run(result.user.id);
+      result.user.role = 'merchant';
+    }
+
     res.setHeader('Set-Cookie', [
       `wrj_session=${s.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${s.maxAge}`,
       expire,
       'wrj_next=; HttpOnly; Path=/; Max-Age=0',
+      'wrj_want=; HttpOnly; Path=/; Max-Age=0',
     ]);
     audit(result.user.id, result.created ? 'signup' : 'login', `user:${result.user.id}`, null, req.ip);
 
@@ -1908,6 +1925,137 @@ ${bad ? `<div class="alert alert-warn">Unverified callbacks are recorded and ign
   </tr>`).join('') || '<tr><td colspan="7" class="muted pad">Nothing yet.</td></tr>'}</tbody>
 </table></div></div>`,
   });
+});
+
+// ======================================================================
+// ACCOUNT
+// ======================================================================
+/* Why switching sides is allowed at all, and what stops it being abused.
+
+   Somebody who came here to work often later wants to hire, and telling them
+   to make a second Google account would be telling them to break the one
+   account per person rule we enforce everywhere else.
+
+   What it must never do is let anyone walk away from work in flight. A
+   merchant with submissions waiting owes those workers a decision; a worker
+   holding open tasks owes that buyer either proof or the slot back. So the
+   switch is blocked while either is true, and the reason says exactly what to
+   finish first.
+
+   It cannot be used to approve your own work: a worker may never take a job
+   whose merchant_id is their own user id, and that check reads the job, not
+   the current role.
+*/
+function switchBlockers(user) {
+  const reasons = [];
+
+  if (user.role === 'merchant') {
+    const waiting = db.prepare(
+      "SELECT COUNT(*) AS n FROM submissions WHERE merchant_id = ? AND status = 'submitted'"
+    ).get(user.id).n;
+    if (waiting) {
+      reasons.push(`${waiting} submission${waiting === 1 ? '' : 's'} still need${waiting === 1 ? 's' : ''} your decision`);
+    }
+    const live = db.prepare(
+      "SELECT COUNT(*) AS n FROM jobs WHERE merchant_id = ? AND status IN ('active','paused')"
+    ).get(user.id).n;
+    if (live) {
+      reasons.push(`${live} job${live === 1 ? ' is' : 's are'} still open - cancel or finish ${live === 1 ? 'it' : 'them'} first`);
+    }
+  }
+
+  if (user.role === 'worker') {
+    const open = db.prepare(
+      "SELECT COUNT(*) AS n FROM submissions WHERE worker_id = ? AND status IN ('started','submitted')"
+    ).get(user.id).n;
+    if (open) {
+      reasons.push(`${open} task${open === 1 ? '' : 's'} of yours ${open === 1 ? 'is' : 'are'} still open or waiting review`);
+    }
+  }
+
+  return reasons;
+}
+
+app.get('/account', need(), (req, res) => {
+  const u = req.user;
+  const other = u.role === 'merchant' ? 'worker' : 'merchant';
+  const blockers = u.role === 'admin' ? ['Admin accounts do not switch.'] : switchBlockers(u);
+
+  const logins = db.prepare(
+    'SELECT ip, created_at FROM logins WHERE user_id = ? ORDER BY id DESC LIMIT 8'
+  ).all(u.id);
+
+  send(req, res, {
+    title: 'Account', active: 'account',
+    body: `
+<h1>Account</h1>
+
+<div class="two">
+  <div class="card pad">
+    <h2>You</h2>
+    <dl class="kv">
+      <dt>Name</dt><dd>${V.esc(u.name)}</dd>
+      <dt>Email</dt><dd>${V.esc(u.email)}</dd>
+      <dt>Signed in with</dt><dd>Google${u.google_sub ? '' : ' (not yet linked)'}</dd>
+      <dt>Account type</dt><dd><b>${u.role === 'merchant' ? 'Buyer - you hire' : u.role === 'admin' ? 'Admin' : 'Worker - you do tasks'}</b></dd>
+      <dt>Joined</dt><dd>${V.ago(u.created_at)}</dd>
+      <dt>Balance</dt><dd>${V.money(money.balance(u.id))}</dd>
+    </dl>
+  </div>
+
+  ${u.role === 'admin' ? '' : `
+  <div class="card pad">
+    <h2>Switch to ${other === 'merchant' ? 'hiring' : 'working'}</h2>
+    ${other === 'merchant'
+      ? '<p class="muted">Post tasks, fund them up front, and review the proof that comes back. Your balance and history stay exactly as they are.</p>'
+      : '<p class="muted">Do tasks yourself and get paid when a buyer approves them. Your balance and history stay exactly as they are.</p>'}
+
+    ${blockers.length ? `
+      <div class="alert alert-warn">
+        <b>Finish this first:</b>
+        <ul class="tight">${blockers.map(b => `<li>${V.esc(b)}</li>`).join('')}</ul>
+        Switching now would leave other people waiting on you.
+      </div>`
+      : `<form method="post" action="/account/role">
+           ${csrfField(req)}
+           <input type="hidden" name="role" value="${other}">
+           <button class="btn" type="submit">Switch to ${other === 'merchant' ? 'a buyer account' : 'a worker account'}</button>
+         </form>
+         <p class="fine">You can switch back later, as long as nothing is left in progress.</p>`}
+  </div>`}
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Recent sign-ins</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>When</th><th>Connection</th></tr></thead>
+    <tbody>${logins.map(l => `<tr>
+      <td class="dim">${V.ago(l.created_at)}</td>
+      <td class="mono">${V.esc(l.ip || 'unknown')}</td>
+    </tr>`).join('') || '<tr><td colspan="2" class="muted pad">Nothing recorded yet.</td></tr>'}</tbody>
+  </table></div>
+  <div class="pad"><p class="fine">Shown so you can see what we see. If an address here is
+    not yours, <a href="/support">tell support</a>.</p></div>
+</div>`,
+  });
+});
+
+app.post('/account/role', need(), (req, res) => {
+  const u = req.user;
+  if (u.role === 'admin') return fail(res, 'Admin accounts do not switch.');
+
+  const want = req.body.role === 'merchant' ? 'merchant' : 'worker';
+  if (want === u.role) return back(res, '/account', 'That is already your account type.', 'info');
+
+  const blockers = switchBlockers(u);
+  if (blockers.length) return fail(res, 'Finish this first: ' + blockers.join('; '));
+
+  db.prepare('UPDATE users SET role = ? WHERE id = ?').run(want, u.id);
+  audit(u.id, 'role_switched', `user:${u.id}`, { from: u.role, to: want }, req.ip);
+  back(res, want === 'merchant' ? '/merchant' : '/worker',
+    want === 'merchant'
+      ? 'You are a buyer now. Add funds, then post your first job.'
+      : 'You are a worker now. Find a task to get started.', 'ok');
 });
 
 // ======================================================================

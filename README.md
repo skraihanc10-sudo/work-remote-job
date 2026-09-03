@@ -318,6 +318,16 @@ it before you rely on it.
 
 ## Roles
 
+A person picks a side when they first sign in, and can change it later from
+**Account** — but not while work is in flight. A merchant with submissions
+waiting owes those workers a decision, and a worker holding open tasks owes
+that buyer proof or the slot back, so the switch is blocked until those are
+cleared and the message says what to finish.
+
+Switching cannot be used to approve your own work: a worker may never take a
+job whose merchant is their own account, and that check reads the job rather
+than the current role.
+
 **Worker** — browse jobs, take a task, send proof, get paid, withdraw.
 
 **Merchant** — add funds, post jobs (funded at the moment they go live),

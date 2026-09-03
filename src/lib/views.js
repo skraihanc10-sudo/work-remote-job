@@ -52,6 +52,7 @@ function nav(user, active) {
       <a href="/wallet"${active === 'wallet' ? ' class="on"' : ''}>Wallet</a>
       <a href="/support"${active === 'support' ? ' class="on"' : ''}>Support</a>
       <span class="nav-gap"></span>
+      <a href="/account"${active === 'account' ? ' class="on"' : ''} class="who-link">${esc(user.name)}</a>
       <a href="/merchant/jobs/new" class="btn btn-sm">Post a job</a>
       <a href="/logout" class="btn btn-ghost btn-sm">Sign out</a>`;
   }
@@ -63,7 +64,7 @@ function nav(user, active) {
     <a href="/wallet"${active === 'wallet' ? ' class="on"' : ''}>Wallet</a>
     <a href="/support"${active === 'support' ? ' class="on"' : ''}>Support</a>
     <span class="nav-gap"></span>
-    <span class="who">${esc(user.name)}</span>
+    <a href="/account" class="who-link">${esc(user.name)}</a>
     <a href="/logout" class="btn btn-ghost btn-sm">Sign out</a>`;
 }
 
