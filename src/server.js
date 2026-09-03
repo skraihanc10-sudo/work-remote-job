@@ -214,21 +214,19 @@ app.get('/proof/:name', need(), (req, res) => {
 // ======================================================================
 // PUBLIC
 // ======================================================================
-
 /* Home page numbers.
 
    Every figure is counted from the database, not typed into a settings box.
    A marketplace that inflates its own numbers is lying to the people deciding
    whether to trust it with their time, and the moment one number is invented
    nobody can tell which of the others are real.
-
-   When a count is genuinely zero it is left out rather than shown as "0 paid
-   out" - true, but not worth a panel on a launch day.
 */
 function homeStats() {
-  const s = {
-    jobs: db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE status = 'active'").get().n,
+  return {
+    jobs: db.prepare("SELECT COUNT(*) AS n FROM jobs").get().n,
+    active: db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE status = 'active'").get().n,
     slots: db.prepare("SELECT COALESCE(SUM(slots - slots_filled), 0) AS n FROM jobs WHERE status = 'active'").get().n,
+    users: db.prepare("SELECT COUNT(*) AS n FROM users WHERE role != 'admin'").get().n,
     workers: db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'worker'").get().n,
     merchants: db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'merchant'").get().n,
     done: db.prepare("SELECT COUNT(*) AS n FROM submissions WHERE status = 'approved'").get().n,
@@ -237,7 +235,24 @@ function homeStats() {
       "SELECT COUNT(*) AS n FROM submissions WHERE status = 'approved' AND reviewed_at >= ?"
     ).get(spam.todayStart()).n,
   };
-  return s;
+}
+
+// Icons for the counter strip, drawn rather than loaded, so nothing here
+// depends on an image host and they inherit the colour around them.
+const COUNTER_ICONS = {
+  jobs: '<path d="M3 7h18v13H3z"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/>',
+  users: '<circle cx="9" cy="8" r="3"/><path d="M2 20a7 7 0 0 1 14 0"/><path d="M17 6a3 3 0 0 1 0 6"/><path d="M19 20a6 6 0 0 0-3-5"/>',
+  done: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/>',
+  paid: '<circle cx="12" cy="12" r="9"/><path d="M12 7v10"/><path d="M14.8 9.5c-.5-.9-1.6-1.3-2.8-1.3-1.6 0-2.6.8-2.6 1.9 0 2.7 5.6 1.4 5.6 4.2 0 1.2-1.1 2-2.9 2-1.3 0-2.4-.5-2.9-1.4"/>',
+};
+
+function counter(icon, value, label) {
+  return `<div class="counter">
+    <span class="counter-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${COUNTER_ICONS[icon]}</svg></span>
+    <b>${value}</b>
+    <span class="counter-label">${V.esc(label)}</span>
+  </div>`;
 }
 
 app.get('/', (req, res) => {
@@ -256,59 +271,169 @@ app.get('/', (req, res) => {
     'SELECT * FROM testimonials WHERE visible = 1 ORDER BY sort, id LIMIT 6'
   ).all();
 
-  // A figure that is genuinely zero is left out rather than printed as "0".
-  // Not to flatter the site - the numbers that are shown are all counted, and
-  // none is ever inflated - but because "0 tasks approved" is a true fact that
-  // tells a visitor nothing except that the site is new, which the rest of the
-  // page already makes obvious.
-  const figures = [
-    { n: s.done, label: 'tasks approved' },
-    { n: s.slots, label: 'tasks open now' },
-    { n: s.workers, label: 'workers' },
-    { n: s.merchants, label: 'buyers' },
-    { n: s.paid, label: 'paid to workers', money: true },
-  ].filter(f => f.n > 0).map(f => ({ n: f.money ? V.money(f.n) : String(f.n), label: f.label }));
+  // The activity strip. Real rows only - where there is nothing yet the section
+  // says so rather than being filled with invented movement.
+  const feed = db.prepare(`
+    SELECT j.id, j.title, j.rate, j.slots, j.slots_filled, j.created_at, u.name AS buyer
+    FROM jobs j JOIN users u ON u.id = j.merchant_id
+    WHERE j.status IN ('active','completed') ORDER BY j.id DESC LIMIT 6
+  `).all();
+
+  const refTask = (numSetting('referral_task_bps') / 100).toFixed(0);
+  const refDep = (numSetting('referral_deposit_bps') / 100).toFixed(0);
 
   send(req, res, {
-    title: 'Small tasks, paid on approval',
+    title: 'Best microjob site to make money online',
     body: `
-<section class="hero">
-  <div class="hero-copy">
-    <span class="eyebrow">Remote Work BD</span>
-    <h1>Small tasks. Real money. Paid when your work is approved.</h1>
-    <p class="lede">Buyers fund every job before it goes live, so the money for your
-       task is already set aside before you start it.</p>
-    <div class="btn-row">
-      <a href="/login?want=worker" class="btn btn-lg">Start working</a>
-      <a href="/login?want=merchant" class="btn btn-ghost btn-lg">Post a job</a>
-    </div>
-    <p class="fine">Sign in with Google. One person, one account.</p>
+<section class="hero2">
+  <div class="hero2-copy">
+    <h1>Microjobs and freelancing<br>to make money online</h1>
+    <p class="hero2-sub">Small gigs. Real payouts.</p>
+    <p class="hero2-line">Every job is funded before it goes live.</p>
+    <a href="/login?want=worker" class="btn btn-lg">Earn money
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+        stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12h13"/><path d="M13 6l6 6-6 6"/></svg></a>
   </div>
-  <div class="hero-panel">
-    <div class="hero-panel-head">
-      <span class="live"></span> ${figures.length ? 'Live right now' : 'Just opened'}
+  <div class="hero2-art" aria-hidden="true">
+    <svg viewBox="0 0 420 360" width="100%" height="100%">
+      <defs>
+        <linearGradient id="cA" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#F79E45"/><stop offset="1" stop-color="#E8622A"/></linearGradient>
+        <linearGradient id="cB" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#A78BFA"/><stop offset="1" stop-color="#7C5CE0"/></linearGradient>
+        <linearGradient id="cC" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#34D399"/><stop offset="1" stop-color="#0E9F6E"/></linearGradient>
+        <linearGradient id="cD" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#F472B6"/><stop offset="1" stop-color="#DB4F93"/></linearGradient>
+      </defs>
+      <g stroke="#DCE4F0" stroke-width="1" fill="none" opacity=".9">
+        ${[0, 1, 2, 3, 4].map(i => `<path d="M${60 + i * 66} 40 L${170 + i * 66} 150 L${60 + i * 66} 260 L${-50 + i * 66} 150 Z"/>`).join('')}
+      </g>
+      <g>
+        <path d="M120 190 L175 158 L230 190 L175 222 Z" fill="url(#cA)"/>
+        <path d="M120 190 L175 222 L175 300 L120 268 Z" fill="url(#cA)" opacity=".78"/>
+        <path d="M230 190 L175 222 L175 300 L230 268 Z" fill="url(#cA)" opacity=".55"/>
+
+        <path d="M250 78 L292 54 L334 78 L292 102 Z" fill="url(#cB)"/>
+        <path d="M250 78 L292 102 L292 158 L250 134 Z" fill="url(#cB)" opacity=".78"/>
+        <path d="M334 78 L292 102 L292 158 L334 134 Z" fill="url(#cB)" opacity=".55"/>
+
+        <path d="M74 96 L104 78 L134 96 L104 114 Z" fill="url(#cC)"/>
+        <path d="M74 96 L104 114 L104 152 L74 134 Z" fill="url(#cC)" opacity=".78"/>
+        <path d="M134 96 L104 114 L104 152 L134 134 Z" fill="url(#cC)" opacity=".55"/>
+
+        <path d="M276 208 L308 190 L340 208 L308 226 Z" fill="url(#cD)"/>
+        <path d="M276 208 L308 226 L308 264 L276 246 Z" fill="url(#cD)" opacity=".78"/>
+        <path d="M340 208 L308 226 L308 264 L340 246 Z" fill="url(#cD)" opacity=".55"/>
+      </g>
+      <path d="M352 30 C398 44 384 84 350 76 C322 70 336 40 366 52" stroke="#1F9D4D"
+        stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <path d="M56 296 C104 330 156 322 196 300" stroke="#1F9D4D" stroke-width="2.4"
+        fill="none" stroke-linecap="round"/>
+      <path d="M188 292 l12 8 -13 6" stroke="#1F9D4D" stroke-width="2.4" fill="none"
+        stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
+</section>
+
+<section class="counters">
+  <div class="wrap counters-grid">
+    ${counter('jobs', s.jobs, 'Jobs posted')}
+    ${counter('users', s.users, 'Total users')}
+    ${counter('done', s.done, 'Tasks done')}
+    ${counter('paid', V.money(s.paid), 'Paid out')}
+  </div>
+  <p class="counters-note">Counted from our own records. Nothing on this page is
+     rounded up or invented.</p>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <span class="band-eyebrow">Remote Work BD</span>
+    <h2 class="band-title">Recent activity</h2>
+    <div class="band-card">
+      ${feed.length ? feed.map(j => {
+        const pct = Math.round((j.slots_filled / Math.max(1, j.slots)) * 100);
+        return `<div class="act-row">
+          <a class="btn btn-sm" href="/jobs/${j.id}">View</a>
+          <span class="act-who">${V.esc(shortName(j.buyer))}</span>
+          <span class="act-bar">
+            <span class="act-count">${j.slots_filled} of ${j.slots}</span>
+            <span class="bar"><i style="width:${pct}%"></i></span>
+          </span>
+          <span class="act-rate">${V.money(j.rate)}</span>
+          <span class="act-time">${V.ago(j.created_at)}</span>
+        </div>`;
+      }).join('') : `<div class="act-empty">
+        <b>Nothing has happened here yet.</b>
+        <span>This feed fills itself from real jobs. We would rather show an empty
+          box than invent movement on the page that asks you to trust us.</span>
+      </div>`}
     </div>
-    ${figures.length ? `<div class="hero-figures">
-      ${figures.map(f => `<div class="fig"><b>${f.n}</b><span>${V.esc(f.label)}</span></div>`).join('')}
-    </div>` : `<p class="hero-empty">This site is new. Every number here is counted from
-      real activity, so there is nothing to show yet &mdash; and nothing invented either.</p>`}
-    ${s.today ? `<div class="hero-today">${s.today} task${s.today === 1 ? '' : 's'} approved today</div>` : ''}
+    ${feed.length ? '<div class="band-more"><a href="/activity">See all activity</a></div>' : ''}
+  </div>
+</section>
+
+<section class="services">
+  <div class="wrap">
+    <span class="eyebrow bar-eyebrow">We provide</span>
+    <h2 class="big-title">Services</h2>
+    <div class="three">
+      <div class="svc-card">
+        <span class="svc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8"/><path d="M12 16v4"/></svg></span>
+        <h3>Work</h3>
+        <ul>
+          <li>Pick the jobs you like</li>
+          <li>Complete the task properly</li>
+          <li>Send the proof it asks for</li>
+          <li>Get paid on approval</li>
+        </ul>
+      </div>
+      <div class="svc-card">
+        <span class="svc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 7h16v13H4z"/><path d="M9 7V5h6v2"/><path d="M9 13l2 2 4-4"/></svg></span>
+        <h3>Post a job</h3>
+        <ul>
+          <li>Write what you need done</li>
+          <li>Set the rate and how many workers</li>
+          <li>Fund it up front, held in escrow</li>
+          <li>Review each proof yourself</li>
+        </ul>
+      </div>
+      <div class="svc-card">
+        <span class="svc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7h18v10H3z"/><circle cx="12" cy="12" r="2.4"/><path d="M7 12h.01M17 12h.01"/></svg></span>
+        <h3>Deposit and withdraw</h3>
+        <ul>
+          <li>bKash, Nagad, card or crypto</li>
+          <li>Money credited once it clears</li>
+          <li>Withdraw over ${V.money(numSetting('min_withdrawal'))}</li>
+          <li>Every movement in your history</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="promo">
+    <h2>Earn ${refTask}% more by referral</h2>
+    <p>Share your link. You get <b>${refTask}% of our fee</b> on every task someone you
+       referred completes, and <b>${refDep}% of what they deposit</b> as a buyer.
+       It comes out of our commission &mdash; never out of their earnings.</p>
+    <a href="/login?want=worker" class="btn btn-lg btn-white">Start now</a>
   </div>
 </section>
 
 <section class="section">
-  <div class="section-head center"><h2>How it works</h2></div>
-  <div class="three">
-    <div class="card pad"><span class="step">1</span><h3>Pick a task</h3>
-      <p class="muted">Every job says exactly what to do and what proof to send.
-         One worker can do each job once.</p></div>
-    <div class="card pad"><span class="step">2</span><h3>Do it and send proof</h3>
-      <p class="muted">Your time on the task is recorded, so honest work is easy to
-         tell apart from clicking through.</p></div>
-    <div class="card pad"><span class="step">3</span><h3>Get paid</h3>
-      <p class="muted">The buyer reviews it. Approved work is credited straight away
-         from money already held in escrow.</p></div>
-  </div>
+  <div class="section-head"><h2>Latest jobs</h2><a href="/jobs" class="link">See all</a></div>
+  ${latest.length ? `<div class="job-grid">${latest.map(jobCard).join('')}</div>`
+    : `<div class="empty">No jobs are open right now.</div>`}
 </section>
 
 ${reviews.length ? `
@@ -323,28 +448,24 @@ ${reviews.length ? `
         <blockquote>${V.esc(r.body)}</blockquote>
         <figcaption>
           <span class="avatar-initial">${V.esc(r.name.charAt(0))}</span>
-          <span class="who-block">
-            <b>${V.esc(r.name)}</b>
-            <span class="dim">${V.esc(r.role || '')}</span>
-          </span>
+          <span class="who-block"><b>${V.esc(r.name)}</b><span class="dim">${V.esc(r.role || '')}</span></span>
           ${r.earned ? `<span class="earned">${V.esc(r.earned)}</span>` : ''}
         </figcaption>
       </figure>`).join('')}
   </div>
 </section>` : ''}
 
-<section class="section">
-  <div class="section-head"><h2>Latest jobs</h2><a href="/jobs" class="link">See all</a></div>
-  ${latest.length ? `<div class="job-grid">${latest.map(jobCard).join('')}</div>`
-    : `<div class="empty">No jobs are open right now.</div>`}
-</section>
-
-<section class="cta-band">
-  <div>
-    <h2>Ready to start?</h2>
-    <p>Free to join. You only need a Google account.</p>
+<section class="wrap">
+  <div class="findwork">
+    <div>
+      <span>So what are you waiting for?</span>
+      <h2>Find great work</h2>
+    </div>
+    <a href="/login?want=worker" class="btn btn-lg btn-white">Start now
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+        stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12h13"/><path d="M13 6l6 6-6 6"/></svg></a>
   </div>
-  <a href="/login?want=worker" class="btn btn-lg">Create your account</a>
 </section>`,
   });
 });

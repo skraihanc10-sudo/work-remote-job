@@ -145,21 +145,61 @@ ${body}
 </main>
 
 <footer class="foot">
-  <div class="wrap foot-inner">
-    <span>&copy; ${new Date().getFullYear()} ${SITE}</span>
-    <span class="foot-links">
-      <a href="/about">About</a>
-      <a href="/how-it-works">How it works</a>
-      <a href="/activity">Live activity</a>
-      <a href="/payments">Payment proof</a>
-      <a href="/rules">Rules</a>
-      <a href="/faq">Questions</a>
-      <a href="/security">Security</a>
-      <a href="/terms">Terms</a>
-      <a href="/privacy-policy">Privacy</a>
-      <a href="/refunds">Refunds</a>
-      <a href="/contact">Contact</a>
-    </span>
+  <div class="wrap foot-grid">
+    <div class="foot-brand">
+      <div class="foot-mark">${logoMark()}<span>Remote Work <b>BD</b></span></div>
+      <p>Microjob and freelancing site to make money online. Every job is funded
+         before it goes live.</p>
+      ${getSetting('business_address', '') ? `<h5>Address</h5>
+        <p class="foot-addr">${br(getSetting('business_address', ''))}</p>` : ''}
+      ${getSetting('business_email', '') ? `<p class="foot-addr">${esc(getSetting('business_email', ''))}</p>` : ''}
+    </div>
+
+    <div class="foot-col">
+      <h5>Company</h5>
+      <ul>
+        <li><a href="/about">About us</a></li>
+        <li><a href="/privacy-policy">Privacy policy</a></li>
+        <li><a href="/terms">Terms &amp; conditions</a></li>
+        <li><a href="/security">Security</a></li>
+      </ul>
+    </div>
+
+    <div class="foot-col">
+      <h5>Services</h5>
+      <ul>
+        <li><a href="/jobs">Browse jobs</a></li>
+        <li><a href="/how-it-works">How it works</a></li>
+        <li><a href="/faq">FAQ</a></li>
+        <li><a href="/refunds">Refund policy</a></li>
+      </ul>
+    </div>
+
+    <div class="foot-col">
+      <h5>Support</h5>
+      <ul>
+        <li><a href="/support">Live support</a></li>
+        <li><a href="/activity">Live activity</a></li>
+        <li><a href="/payments">Payment proof</a></li>
+        <li><a href="/contact">Contact us</a></li>
+      </ul>
+      ${getSetting('telegram_channel', '') || getSetting('telegram_support', '') ? `
+      <div class="foot-social">
+        ${getSetting('telegram_channel', '') ? `<a href="${esc(getSetting('telegram_channel', ''))}"
+          target="_blank" rel="noopener" aria-label="Telegram channel">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor">
+            <path d="M21.9 4.3 18.8 19c-.2 1-.9 1.3-1.7.8l-4.7-3.5-2.3 2.2c-.3.3-.5.5-.9.5l.3-4.7 8.6-7.8c.4-.3-.1-.5-.6-.2L6.9 13 2.3 11.5c-1-.3-1-1 .2-1.5l18-6.9c.8-.3 1.6.2 1.4 1.2z"/></svg></a>` : ''}
+        ${getSetting('telegram_support', '') ? `<a href="${esc(getSetting('telegram_support', ''))}"
+          target="_blank" rel="noopener" aria-label="Telegram support">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+            stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a8 8 0 1 1-3.2-6.4"/><path d="M21 4v5h-5"/></svg></a>` : ''}
+      </div>` : ''}
+    </div>
+  </div>
+
+  <div class="foot-bottom">
+    <div class="wrap">&copy; ${new Date().getFullYear()} ${SITE}. All rights reserved.</div>
   </div>
 </footer>
 
