@@ -49,6 +49,38 @@ if (!admins.length) {
   console.log('  They become usable the moment that Google address signs in.');
 }
 
+// ------------------------------------------------------------ testimonials
+// Marked is_demo, and the home page says so while any of them are. Swap them
+// for real ones from the admin side as they arrive; showing invented praise as
+// though it were real is the fastest way to lose the trust the site runs on.
+if (!db.prepare('SELECT COUNT(*) AS n FROM testimonials').get().n) {
+  const rows = [
+    ['Shakib Al Amin', 'Worker, Dhaka',
+     'I do three or four tasks in the evening after work. The money shows up the same day the buyer approves it, not next month.',
+     '৳4,200 this month'],
+    ['Farhana Akter', 'Worker, Chattogram',
+     'What I like is that the buyer already paid before I start. On other sites I have done work and then been told the budget was finished.',
+     '৳2,850 this month'],
+    ['Tanvir Rahman', 'Buyer, app developer',
+     'I needed 200 real installs with screenshots. Posted it, funded it, and reviewed the proof myself. The ones that came in too fast were flagged for me automatically.',
+     '312 tasks bought'],
+    ['Nusrat Jahan', 'Worker, Sylhet',
+     'The rules are the same for everyone and they are actually enforced. One job once, and you cannot farm the same buyer all day.',
+     '৳1,940 this month'],
+    ['Imran Hossain', 'Buyer, marketing agency',
+     'Being able to see how long somebody spent on a task changed how I review. Real work and clicking through do not look the same any more.',
+     '1,100 tasks bought'],
+    ['Rima Chowdhury', 'Worker, Rajshahi',
+     'Withdrew twice through bKash with no problem. Support answered inside the site the same evening.',
+     '৳3,100 this month'],
+  ];
+  const insert = db.prepare(
+    'INSERT INTO testimonials (name, role, body, earned, is_demo, sort) VALUES (?, ?, ?, ?, 1, ?)'
+  );
+  rows.forEach((r, i) => insert.run(r[0], r[1], r[2], r[3], i));
+  console.log('  Added ' + rows.length + ' example reviews for the home page (marked as examples).');
+}
+
 // -------------------------------------------------------------------- demo
 if (process.argv.includes('--demo')) {
   // Demo accounts have no google_sub, so they can never be signed into. They

@@ -18,14 +18,17 @@
   --line:      #E1E5E4;
   --line-soft: #EDF0EF;
 
-  --green:     #0F7A52;
-  --green-dk:  #0B5C3E;
-  --green-bg:  #E7F3ED;
+  --navy:      #1E3A5F;
+  --navy-dk:   #162C48;
+  --navy-bg:   #EAEFF5;
+  --green:     #1B7F92;      /* teal - success, earnings, approved */
+  --green-dk:  #146273;
+  --green-bg:  #E4F1F4;
   --amber:     #96650C;
   --amber-bg:  #FBF2E0;
   --red:       #B3392E;
   --red-bg:    #FBECEA;
-  --blue:      #1F5D91;
+  --blue:      #1E3A5F;
 
   --ui:   "Figtree", system-ui, -apple-system, sans-serif;
   --head: "Archivo", "Figtree", system-ui, sans-serif;
@@ -42,14 +45,17 @@
     --muted:     #8B959D;
     --line:      #2A333A;
     --line-soft: #222A30;
-    --green:     #4FC095;
-    --green-dk:  #6FD3AC;
-    --green-bg:  #12291F;
+    --navy:      #7FA6CE;
+    --navy-dk:   #9CBBDB;
+    --navy-bg:   #17222F;
+    --green:     #46B3C7;
+    --green-dk:  #6BC9D9;
+    --green-bg:  #10262C;
     --amber:     #D8A44E;
     --amber-bg:  #2A2113;
     --red:       #E38176;
     --red-bg:    #2C1917;
-    --blue:      #74AADF;
+    --blue:      #7FA6CE;
   }
 }
 
@@ -83,7 +89,7 @@ a:hover { text-decoration: underline; }
 .neg { color: var(--ink-2); }
 .bad { color: var(--red); }
 em { font-style: normal; color: var(--muted); font-weight: 400; }
-:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
 
 .wrap { max-width: 1040px; margin: 0 auto; padding: 0 22px; }
 .wrap-wide { max-width: 1240px; }
@@ -97,7 +103,7 @@ main.wrap { padding-top: 26px; padding-bottom: 70px; }
 .brand { display: flex; align-items: center; gap: 9px; color: inherit; }
 .brand:hover { text-decoration: none; }
 .brand-mark {
-  width: 30px; height: 30px; border-radius: 7px; background: var(--green); color: #fff;
+  width: 32px; height: 32px; border-radius: 8px; background: var(--navy); color: #fff;
   font-family: var(--head); font-weight: 700; font-size: 12px;
   display: grid; place-items: center; flex: none;
 }
@@ -107,11 +113,11 @@ main.wrap { padding-top: 26px; padding-bottom: 70px; }
 .nav { display: flex; align-items: center; gap: 6px; flex: 1; flex-wrap: wrap; }
 .nav > a { color: var(--ink-2); padding: 6px 10px; border-radius: 6px; font-weight: 500; font-size: 14.5px; }
 .nav > a:hover { background: var(--sunk); text-decoration: none; }
-.nav > a.on { color: var(--green); }
+.nav > a.on { color: var(--navy); }
 /* .nav > a is more specific than .btn, so without these the buttons in the
    header lose their own colours and a green button gets dark grey text. */
 .nav > a.btn { color: #fff; padding: 9px 17px; }
-.nav > a.btn:hover { background: var(--green-dk); }
+.nav > a.btn:hover { background: var(--navy-dk); }
 .nav > a.btn-ghost { color: var(--ink-2); }
 .nav > a.btn-ghost:hover { background: var(--sunk); }
 .nav-gap { flex: 1; }
@@ -119,12 +125,12 @@ main.wrap { padding-top: 26px; padding-bottom: 70px; }
 
 /* ----------------------------------------------------------------- buttons */
 .btn {
-  display: inline-block; background: var(--green); color: #fff;
-  border: 1px solid var(--green); border-radius: 7px;
+  display: inline-block; background: var(--navy); color: #fff;
+  border: 1px solid var(--navy); border-radius: 7px;
   padding: 9px 17px; font: inherit; font-weight: 600; font-size: 14.5px;
   cursor: pointer; text-align: center;
 }
-.btn:hover { background: var(--green-dk); border-color: var(--green-dk); text-decoration: none; color: #fff; }
+.btn:hover { background: var(--navy-dk); border-color: var(--navy-dk); text-decoration: none; color: #fff; }
 .btn-lg { padding: 12px 24px; font-size: 15.5px; }
 .btn-sm { padding: 6px 12px; font-size: 13.5px; }
 .btn-ghost { background: transparent; color: var(--ink-2); border-color: var(--line); }
@@ -145,7 +151,7 @@ input[type="search"], select, textarea {
 }
 textarea { resize: vertical; }
 input:focus, select:focus, textarea:focus {
-  outline: none; border-color: var(--green); box-shadow: 0 0 0 3px rgba(15,122,82,.14);
+  outline: none; border-color: var(--navy); box-shadow: 0 0 0 3px rgba(30,58,95,.14);
 }
 ::placeholder { color: var(--muted); opacity: .75; }
 .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 15px; }
@@ -171,8 +177,8 @@ input:focus, select:focus, textarea:focus {
 .sticky { position: sticky; top: 82px; }
 .back { display: inline-block; color: var(--muted); font-size: 13.5px; margin-bottom: 8px; }
 .prose { white-space: normal; line-height: 1.7; }
-.step { display: inline-block; font-family: var(--mono); font-size: 12px; color: var(--green);
-  border: 1.5px solid var(--green); width: 24px; height: 24px; border-radius: 50%;
+.step { display: inline-block; font-family: var(--mono); font-size: 12px; color: var(--navy);
+  border: 1.5px solid var(--navy); width: 24px; height: 24px; border-radius: 50%;
   text-align: center; line-height: 21px; margin-bottom: 8px; }
 
 /* -------------------------------------------------------------------- hero */
@@ -195,7 +201,7 @@ input:focus, select:focus, textarea:focus {
   background: var(--card); border: 1px solid var(--line); border-radius: 10px;
   padding: 16px 18px; color: inherit; display: flex; flex-direction: column; gap: 6px;
 }
-.job-card:hover { border-color: var(--green); text-decoration: none; }
+.job-card:hover { border-color: var(--navy); text-decoration: none; }
 .job-top { display: flex; align-items: center; justify-content: space-between; }
 .tag { font-size: 11.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 .rate { font-family: var(--head); font-size: 17px; color: var(--green); }
@@ -242,7 +248,7 @@ tr.flagged { background: var(--amber-bg); }
 .role-switch { display: flex; gap: 6px; background: var(--sunk); padding: 4px; border-radius: 9px; margin-bottom: 16px; }
 .role-switch a { flex: 1; text-align: center; padding: 8px; border-radius: 7px; color: var(--ink-2); font-weight: 500; }
 .role-switch a:hover { text-decoration: none; }
-.role-switch a.on { background: var(--card); color: var(--green); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.role-switch a.on { background: var(--card); color: var(--navy); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 
 .steps { padding-left: 20px; margin: 0; }
 .steps li { margin-bottom: 8px; }
@@ -315,7 +321,7 @@ tr.flagged { background: var(--amber-bg); }
   border-radius: 10px; padding: 20px; cursor: pointer; font: inherit;
   display: flex; flex-direction: column; gap: 6px;
 }
-.pick:hover { border-color: var(--green); }
+.pick:hover { border-color: var(--navy); }
 .pick b { font-family: var(--head); font-size: 17px; }
 .pick span { color: var(--muted); font-size: 14px; }
 
@@ -374,3 +380,130 @@ tr.flagged { background: var(--amber-bg); }
 .who-link:hover { color: var(--ink) !important; }
 ul.tight { margin: 6px 0 0; padding-left: 18px; }
 ul.tight li { margin-bottom: 2px; }
+
+.brand-mark-img { border-radius: 7px; display: block; }
+.brand-mark svg { display: block; }
+
+/* ==================================================================== home */
+.eyebrow {
+  display: inline-block; font-size: 11.5px; font-weight: 600;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--green);
+  margin-bottom: 12px;
+}
+.section-head.center { text-align: center; display: block; margin-bottom: 22px; }
+.section-head.center h2 { font-size: 24px; }
+.section-head.center p { margin: 6px 0 0; }
+
+.hero { align-items: stretch; }
+.hero-copy { display: flex; flex-direction: column; justify-content: center; }
+.hero .fine { margin-top: 14px; }
+
+/* The live panel. Numbers are counted, never typed, so they are allowed to
+   look confident. */
+.hero-panel {
+  background: var(--navy); color: #fff; border-radius: 14px;
+  padding: 22px 24px; display: flex; flex-direction: column; gap: 16px;
+}
+.hero-panel-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+  color: rgba(255,255,255,.65);
+}
+.live {
+  width: 8px; height: 8px; border-radius: 50%; background: #4FD1C5;
+  box-shadow: 0 0 0 0 rgba(79,209,197,.7); animation: pulse 2.2s infinite;
+}
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(79,209,197,.6); }
+  70%  { box-shadow: 0 0 0 9px rgba(79,209,197,0); }
+  100% { box-shadow: 0 0 0 0 rgba(79,209,197,0); }
+}
+.hero-figures { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 20px; }
+.fig b {
+  display: block; font-family: var(--head); font-size: 26px; font-weight: 700;
+  line-height: 1.15; font-variant-numeric: tabular-nums;
+}
+.fig span { font-size: 12px; color: rgba(255,255,255,.6); }
+.hero-today {
+  border-top: 1px solid rgba(255,255,255,.14); padding-top: 13px;
+  font-size: 13.5px; color: #6FD3E0;
+}
+
+/* ------------------------------------------------------------- reviews */
+.review-wall { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 15px; }
+.quote {
+  margin: 0; background: var(--card); border: 1px solid var(--line);
+  border-radius: 11px; padding: 20px 22px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.quote blockquote {
+  margin: 0; font-size: 15px; line-height: 1.65; color: var(--ink-2);
+}
+.quote blockquote::before { content: '\201C'; color: var(--green); font-size: 26px; line-height: 0; vertical-align: -6px; margin-right: 2px; }
+.quote figcaption { display: flex; align-items: center; gap: 11px; margin-top: auto; }
+.avatar-initial {
+  width: 34px; height: 34px; border-radius: 50%; flex: none;
+  background: var(--navy-bg); color: var(--navy);
+  display: grid; place-items: center; font-weight: 700; font-size: 14px;
+}
+.quote figcaption b { display: block; font-size: 14px; }
+.quote figcaption .dim { display: block; font-size: 12.5px; }
+.earned {
+  margin-left: auto; font-family: var(--mono); font-size: 12.5px;
+  color: var(--green); background: var(--green-bg);
+  padding: 3px 9px; border-radius: 20px; white-space: nowrap;
+}
+
+.cta-band {
+  background: var(--navy); color: #fff; border-radius: 14px;
+  padding: 30px 34px; margin: 44px 0 0;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 24px; flex-wrap: wrap;
+}
+.cta-band h2 { color: #fff; margin-bottom: 4px; }
+.cta-band p { margin: 0; color: rgba(255,255,255,.72); }
+.cta-band .btn { background: #fff; color: var(--navy); border-color: #fff; }
+.cta-band .btn:hover { background: #E7EDF5; color: var(--navy); border-color: #E7EDF5; }
+
+/* ================================================================ sign in */
+.signin-split {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+  background: var(--card); margin-top: 10px;
+}
+.signin-left { padding: 40px 38px; display: flex; flex-direction: column; justify-content: center; }
+.signin-left h1 { font-size: 26px; margin-bottom: 8px; }
+.signin-right {
+  background: var(--navy); color: #fff; padding: 40px 38px;
+  display: flex; flex-direction: column; justify-content: center; gap: 20px;
+}
+.signin-right h2 { color: #fff; font-size: 17px; }
+.signin-point { display: flex; gap: 13px; align-items: flex-start; }
+.signin-point .tick {
+  width: 21px; height: 21px; border-radius: 50%; flex: none; margin-top: 2px;
+  background: rgba(255,255,255,.13); color: #6FD3E0;
+  display: grid; place-items: center; font-size: 12px; font-weight: 700;
+}
+.signin-point b { display: block; font-size: 14.5px; margin-bottom: 2px; }
+.signin-point span { font-size: 13.5px; color: rgba(255,255,255,.7); line-height: 1.55; }
+
+@media (max-width: 820px) {
+  .signin-split { grid-template-columns: 1fr; }
+  .signin-right { order: -1; padding: 26px 24px; }
+  .hero-figures { grid-template-columns: repeat(2, 1fr); }
+  .cta-band { padding: 24px; }
+}
+
+.mini-stats { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13.5px; color: var(--muted); margin-bottom: 14px; }
+.mini-stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* The caption had name, role and the earned pill competing for one line, which
+   wrapped every name onto two. Give the name block the room and let the pill
+   drop below when it does not fit. */
+/* Name and role get the whole row; the earned pill wraps onto its own line
+   underneath. Squeezing all three together truncated every name. */
+.quote figcaption { flex-wrap: wrap; row-gap: 10px; }
+.who-block { min-width: 0; flex: 1; }
+.earned { flex-basis: 100%; margin-left: 0; text-align: center; }
+.hero-panel { align-self: center; }
+.hero-empty { margin: 0; font-size: 14px; line-height: 1.6; color: rgba(255,255,255,.72); }

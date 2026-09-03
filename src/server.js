@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-   Work Remote Job - a microjob marketplace.
+   Remote Work BD - a microjob marketplace.
 
      npm start        then open http://localhost:4700
 
@@ -213,17 +213,37 @@ app.get('/proof/:name', need(), (req, res) => {
 // ======================================================================
 // PUBLIC
 // ======================================================================
+
+/* Home page numbers.
+
+   Every figure is counted from the database, not typed into a settings box.
+   A marketplace that inflates its own numbers is lying to the people deciding
+   whether to trust it with their time, and the moment one number is invented
+   nobody can tell which of the others are real.
+
+   When a count is genuinely zero it is left out rather than shown as "0 paid
+   out" - true, but not worth a panel on a launch day.
+*/
+function homeStats() {
+  const s = {
+    jobs: db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE status = 'active'").get().n,
+    slots: db.prepare("SELECT COALESCE(SUM(slots - slots_filled), 0) AS n FROM jobs WHERE status = 'active'").get().n,
+    workers: db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'worker'").get().n,
+    merchants: db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'merchant'").get().n,
+    done: db.prepare("SELECT COUNT(*) AS n FROM submissions WHERE status = 'approved'").get().n,
+    paid: db.prepare("SELECT COALESCE(SUM(amount), 0) AS n FROM ledger WHERE kind = 'task_earning'").get().n,
+    today: db.prepare(
+      "SELECT COUNT(*) AS n FROM submissions WHERE status = 'approved' AND reviewed_at >= ?"
+    ).get(spam.todayStart()).n,
+  };
+  return s;
+}
+
 app.get('/', (req, res) => {
   if (req.user) return res.redirect(req.user.role === 'admin' ? '/admin' :
     req.user.role === 'merchant' ? '/merchant' : '/worker');
 
-  const stats = {
-    jobs: db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE status = 'active'").get().n,
-    open: db.prepare("SELECT COALESCE(SUM(slots - slots_filled), 0) AS n FROM jobs WHERE status = 'active'").get().n,
-    workers: db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'worker'").get().n,
-    paid: db.prepare("SELECT COALESCE(SUM(amount), 0) AS n FROM ledger WHERE kind = 'task_earning'").get().n,
-  };
-
+  const s = homeStats();
   const latest = db.prepare(`
     SELECT j.*, c.name AS category FROM jobs j
     LEFT JOIN categories c ON c.id = j.category_id
@@ -231,11 +251,29 @@ app.get('/', (req, res) => {
     ORDER BY j.id DESC LIMIT 6
   `).all();
 
+  const reviews = db.prepare(
+    'SELECT * FROM testimonials WHERE visible = 1 ORDER BY sort, id LIMIT 6'
+  ).all();
+
+  // A figure that is genuinely zero is left out rather than printed as "0".
+  // Not to flatter the site - the numbers that are shown are all counted, and
+  // none is ever inflated - but because "0 tasks approved" is a true fact that
+  // tells a visitor nothing except that the site is new, which the rest of the
+  // page already makes obvious.
+  const figures = [
+    { n: s.done, label: 'tasks approved' },
+    { n: s.slots, label: 'tasks open now' },
+    { n: s.workers, label: 'workers' },
+    { n: s.merchants, label: 'buyers' },
+    { n: s.paid, label: 'paid to workers', money: true },
+  ].filter(f => f.n > 0).map(f => ({ n: f.money ? V.money(f.n) : String(f.n), label: f.label }));
+
   send(req, res, {
     title: 'Small tasks, paid on approval',
     body: `
 <section class="hero">
   <div class="hero-copy">
+    <span class="eyebrow">Remote Work BD</span>
     <h1>Small tasks. Real money. Paid when your work is approved.</h1>
     <p class="lede">Buyers fund every job before it goes live, so the money for your
        task is already set aside before you start it.</p>
@@ -243,31 +281,69 @@ app.get('/', (req, res) => {
       <a href="/login?want=worker" class="btn btn-lg">Start working</a>
       <a href="/login?want=merchant" class="btn btn-ghost btn-lg">Post a job</a>
     </div>
+    <p class="fine">Sign in with Google. One person, one account.</p>
   </div>
-  <div class="hero-stats">
-    <div class="stat"><b>${stats.jobs}</b><span>open jobs</span></div>
-    <div class="stat"><b>${stats.open}</b><span>tasks available</span></div>
-    <div class="stat"><b>${stats.workers}</b><span>workers</span></div>
-    <div class="stat"><b>${V.money(stats.paid)}</b><span>paid out</span></div>
+  <div class="hero-panel">
+    <div class="hero-panel-head">
+      <span class="live"></span> ${figures.length ? 'Live right now' : 'Just opened'}
+    </div>
+    ${figures.length ? `<div class="hero-figures">
+      ${figures.map(f => `<div class="fig"><b>${f.n}</b><span>${V.esc(f.label)}</span></div>`).join('')}
+    </div>` : `<p class="hero-empty">This site is new. Every number here is counted from
+      real activity, so there is nothing to show yet &mdash; and nothing invented either.</p>`}
+    ${s.today ? `<div class="hero-today">${s.today} task${s.today === 1 ? '' : 's'} approved today</div>` : ''}
   </div>
 </section>
 
 <section class="section">
-  <h2>How it works</h2>
+  <div class="section-head center"><h2>How it works</h2></div>
   <div class="three">
     <div class="card pad"><span class="step">1</span><h3>Pick a task</h3>
-      <p class="muted">Every job says exactly what to do and what proof to send. One worker can do each job once.</p></div>
+      <p class="muted">Every job says exactly what to do and what proof to send.
+         One worker can do each job once.</p></div>
     <div class="card pad"><span class="step">2</span><h3>Do it and send proof</h3>
-      <p class="muted">Your time on the task is recorded, so honest work is easy to tell apart from clicking through.</p></div>
+      <p class="muted">Your time on the task is recorded, so honest work is easy to
+         tell apart from clicking through.</p></div>
     <div class="card pad"><span class="step">3</span><h3>Get paid</h3>
-      <p class="muted">The buyer reviews it. Approved work is credited straight away from money already held in escrow.</p></div>
+      <p class="muted">The buyer reviews it. Approved work is credited straight away
+         from money already held in escrow.</p></div>
   </div>
 </section>
+
+${reviews.length ? `
+<section class="section">
+  <div class="section-head center">
+    <h2>What people say</h2>
+    ${reviews.some(r => r.is_demo) ? '<p class="muted">Example reviews while the site is new.</p>' : ''}
+  </div>
+  <div class="review-wall">
+    ${reviews.map(r => `
+      <figure class="quote">
+        <blockquote>${V.esc(r.body)}</blockquote>
+        <figcaption>
+          <span class="avatar-initial">${V.esc(r.name.charAt(0))}</span>
+          <span class="who-block">
+            <b>${V.esc(r.name)}</b>
+            <span class="dim">${V.esc(r.role || '')}</span>
+          </span>
+          ${r.earned ? `<span class="earned">${V.esc(r.earned)}</span>` : ''}
+        </figcaption>
+      </figure>`).join('')}
+  </div>
+</section>` : ''}
 
 <section class="section">
   <div class="section-head"><h2>Latest jobs</h2><a href="/jobs" class="link">See all</a></div>
   ${latest.length ? `<div class="job-grid">${latest.map(jobCard).join('')}</div>`
     : `<div class="empty">No jobs are open right now.</div>`}
+</section>
+
+<section class="cta-band">
+  <div>
+    <h2>Ready to start?</h2>
+    <p>Free to join. You only need a Google account.</p>
+  </div>
+  <a href="/login?want=worker" class="btn btn-lg">Create your account</a>
 </section>`,
   });
 });
@@ -494,31 +570,45 @@ app.get(['/login', '/register'], (req, res) => {
   send(req, res, {
     title: 'Sign in',
     body: `
-<div class="narrow signin">
-  <h1>Sign in</h1>
-  <p class="muted">One button for everything. If you have never been here before this
-     creates your account; if you have, it signs you in.</p>
-  ${req.query.want === 'merchant'
-    ? '<div class="alert alert-info">You are signing up to <b>hire</b>. You can change this later while your account is still empty.</div>'
-    : ''}
+<div class="signin-split">
+  <div class="signin-left">
+    <h1>${req.query.want === 'merchant' ? 'Start hiring' : 'Sign in'}</h1>
+    <p class="muted">One button for everything. If you have never been here before
+       this creates your account; if you have, it signs you in.</p>
 
-  <a class="google-btn" href="/auth/google?want=${V.esc(req.query.want === 'merchant' ? 'merchant' : '')}${next ? '&next=' + encodeURIComponent(next) : ''}">
-    <svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true">
-      <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.2 17.7 9.5 24 9.5z"/>
-      <path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.4-4.7 7l7.6 5.9c4.4-4.1 6.8-10.1 6.8-17.3z"/>
-      <path fill="#FBBC05" d="M10.4 28.7c-.5-1.4-.8-2.9-.8-4.7s.3-3.3.8-4.7l-7.8-6.1C.9 16.4 0 20.1 0 24s.9 7.6 2.6 10.8l7.8-6.1z"/>
-      <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.8 2.3-8.3 2.3-6.3 0-11.7-3.7-13.6-9.1l-7.8 6.1C6.5 42.6 14.6 48 24 48z"/>
-    </svg>
-    <span>Continue with Google</span>
-  </a>
+    <a class="google-btn" href="/auth/google?want=${V.esc(req.query.want === 'merchant' ? 'merchant' : '')}${next ? '&next=' + encodeURIComponent(next) : ''}">
+      <svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true">
+        <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.2 17.7 9.5 24 9.5z"/>
+        <path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.4-4.7 7l7.6 5.9c4.4-4.1 6.8-10.1 6.8-17.3z"/>
+        <path fill="#FBBC05" d="M10.4 28.7c-.5-1.4-.8-2.9-.8-4.7s.3-3.3.8-4.7l-7.8-6.1C.9 16.4 0 20.1 0 24s.9 7.6 2.6 10.8l7.8-6.1z"/>
+        <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.8 2.3-8.3 2.3-6.3 0-11.7-3.7-13.6-9.1l-7.8 6.1C6.5 42.6 14.6 48 24 48z"/>
+      </svg>
+      <span>Continue with Google</span>
+    </a>
 
-  <div class="card pad why">
-    <h2>Why only Google?</h2>
-    <p class="muted">Anyone can invent a name and a phone number. A Google account is
-       harder to mass-produce, so it is much more work to run a crowd of fake accounts
-       here &mdash; which is what protects the people doing real work.</p>
-    <p class="muted">We never see your Google password. We receive your name, email
-       address and profile picture, and nothing else.</p>
+    ${req.query.want === 'merchant'
+      ? '<p class="fine">You are signing up to <b>hire</b>. You can change this later.</p>'
+      : '<p class="fine">New here? This is also how you create an account.</p>'}
+  </div>
+
+  <div class="signin-right">
+    <h2>Why Google, and nothing else</h2>
+    <div class="signin-point">
+      <span class="tick">1</span>
+      <span><b>No password to lose</b>
+        <span>We never see your Google password, and there is none stored here to leak.</span></span>
+    </div>
+    <div class="signin-point">
+      <span class="tick">2</span>
+      <span><b>One person, one account</b>
+        <span>Anyone can invent a name and a phone number. A crowd of Google accounts
+          costs real effort, which is what protects people doing honest work.</span></span>
+    </div>
+    <div class="signin-point">
+      <span class="tick">3</span>
+      <span><b>We receive very little</b>
+        <span>Your name, email address and profile picture. Nothing else.</span></span>
+    </div>
   </div>
 </div>`,
   });
@@ -1602,7 +1692,7 @@ app.get('/admin/users', need('admin'), (req, res) => {
 <div class="card"><div class="table-wrap"><table>
   <thead><tr><th>User</th><th>Role</th><th class="right">Balance</th><th>Approved</th><th>Rejected</th><th>Strikes</th><th>State</th><th></th></tr></thead>
   <tbody>${rows.map(u => `<tr>
-    <td>${V.esc(u.name)}<div class="dim">${V.esc(u.email)}</div></td>
+    <td><a class="link" href="/admin/users/${u.id}">${V.esc(u.name)}</a><div class="dim">${V.esc(u.email)}</div></td>
     <td>${V.esc(u.role)}</td>
     <td class="num right">${V.money(u.balance)}</td>
     <td class="num">${u.approved}</td><td class="num ${u.rejected ? 'bad' : ''}">${u.rejected}</td>
@@ -1616,6 +1706,189 @@ app.get('/admin/users', need('admin'), (req, res) => {
         <button class="btn btn-sm" type="submit">Restore</button></form>`)}</td>
   </tr>`).join('')}</tbody>
 </table></div></div>`,
+  });
+});
+
+/* One person, everything about them, on one page.
+
+   Built because the alternative is an admin trying to judge a report by
+   flicking between four screens. A decision to suspend somebody should be made
+   with their whole record in view: what they earned, what was rejected, how
+   fast they work, who else shares their connection.
+*/
+app.get('/admin/users/:id', need('admin'), (req, res) => {
+  const id = Number(req.params.id);
+  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  if (!u) return fail(res, 'No such user.');
+
+  const stats = db.prepare(`
+    SELECT
+      COUNT(*) AS taken,
+      SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved,
+      SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
+      SUM(CASE WHEN status IN ('started','submitted') THEN 1 ELSE 0 END) AS open,
+      SUM(CASE WHEN flagged = 1 THEN 1 ELSE 0 END) AS flagged,
+      AVG(CASE WHEN seconds_spent IS NOT NULL THEN seconds_spent END) AS avg_seconds
+    FROM submissions WHERE worker_id = ?
+  `).get(id);
+
+  const asMerchant = db.prepare(`
+    SELECT COUNT(*) AS jobs,
+      COALESCE(SUM(slots), 0) AS slots,
+      COALESCE(SUM(slots_filled), 0) AS filled
+    FROM jobs WHERE merchant_id = ?
+  `).get(id);
+
+  const earned = db.prepare(
+    "SELECT COALESCE(SUM(amount), 0) AS n FROM ledger WHERE user_id = ? AND kind = 'task_earning'"
+  ).get(id).n;
+  const deposited = db.prepare(
+    "SELECT COALESCE(SUM(amount), 0) AS n FROM ledger WHERE user_id = ? AND kind = 'deposit'"
+  ).get(id).n;
+  const withdrawn = db.prepare(
+    "SELECT COALESCE(SUM(amount), 0) AS n FROM withdrawals WHERE user_id = ? AND status = 'paid'"
+  ).get(id).n;
+
+  const ledger = money.history(id, 25);
+  const tasks = db.prepare(`
+    SELECT s.*, j.title, j.rate, j.min_seconds FROM submissions s JOIN jobs j ON j.id = s.job_id
+    WHERE s.worker_id = ? ORDER BY s.id DESC LIMIT 25
+  `).all(id);
+  const jobs = db.prepare(
+    'SELECT * FROM jobs WHERE merchant_id = ? ORDER BY id DESC LIMIT 15'
+  ).all(id);
+  const reportsAgainst = db.prepare(
+    'SELECT * FROM reports WHERE against_id = ? ORDER BY id DESC LIMIT 10'
+  ).all(id);
+  const peers = u.last_ip ? auth.accountsOnIp(u.last_ip).filter(a => a.id !== id) : [];
+  const logins = db.prepare(
+    'SELECT ip, user_agent, created_at FROM logins WHERE user_id = ? ORDER BY id DESC LIMIT 10'
+  ).all(id);
+
+  const rate = stats.taken
+    ? Math.round((stats.approved / Math.max(1, stats.approved + stats.rejected)) * 100)
+    : null;
+
+  send(req, res, {
+    title: u.name, active: 'users', wide: true,
+    body: `
+<a class="back" href="/admin/users">&larr; All users</a>
+<div class="page-head">
+  <div>
+    <h1>${V.esc(u.name)}</h1>
+    <p class="muted">${V.esc(u.email)} · ${V.esc(u.role)} · joined ${V.ago(u.created_at)}
+      ${u.country ? '· ' + V.esc(u.country) : ''}</p>
+  </div>
+  <div class="btn-row">
+    ${V.statusPill(u.status)}
+    ${u.role === 'admin' ? '' : (u.status === 'active' ? `
+      <form method="post" action="/admin/users/${u.id}/suspend" class="inline">${csrfField(req)}
+        <input type="text" name="reason" placeholder="Reason" required maxlength="120">
+        <button class="btn btn-danger btn-sm" type="submit">Suspend</button></form>` : `
+      <form method="post" action="/admin/users/${u.id}/restore" class="inline">${csrfField(req)}
+        <button class="btn btn-sm" type="submit">Restore</button></form>`)}
+  </div>
+</div>
+
+${u.suspend_reason ? `<div class="alert alert-stop"><b>Suspended:</b> ${V.esc(u.suspend_reason)}
+  ${u.suspended_until ? `· lifts ${V.esc(u.suspended_until.slice(0, 10))}` : ''}</div>` : ''}
+
+<div class="stat-row">
+  <div class="stat"><b>${V.money(money.balance(u.id))}</b><span>balance now</span></div>
+  <div class="stat ok"><b>${V.money(earned)}</b><span>earned from tasks</span></div>
+  <div class="stat"><b>${V.money(deposited)}</b><span>deposited</span></div>
+  <div class="stat"><b>${V.money(withdrawn)}</b><span>withdrawn</span></div>
+  <div class="stat"><b>${stats.approved || 0}</b><span>tasks approved</span></div>
+  <div class="stat ${stats.rejected ? 'bad' : ''}"><b>${stats.rejected || 0}</b><span>rejected</span></div>
+  ${rate !== null ? `<div class="stat ${rate < 70 ? 'bad' : ''}"><b>${rate}%</b><span>approval rate</span></div>` : ''}
+  <div class="stat ${stats.flagged ? 'warn' : ''}"><b>${stats.flagged || 0}</b><span>flagged</span></div>
+  <div class="stat"><b>${stats.avg_seconds ? V.mmss(Math.round(stats.avg_seconds)) : '--'}</b><span>average time</span></div>
+  <div class="stat"><b>${u.strikes}</b><span>strikes</span></div>
+</div>
+
+${asMerchant.jobs ? `<div class="stat-row">
+  <div class="stat"><b>${asMerchant.jobs}</b><span>jobs posted</span></div>
+  <div class="stat"><b>${asMerchant.filled} / ${asMerchant.slots}</b><span>slots taken</span></div>
+</div>` : ''}
+
+<div class="two">
+  <div class="card">
+    <div class="card-head"><h2>Tasks</h2></div>
+    ${tasks.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>Job</th><th>Time</th><th>State</th><th>When</th></tr></thead>
+      <tbody>${tasks.map(t => `<tr${t.flagged ? ' class="flagged"' : ''}>
+        <td>${V.esc(t.title)}${t.flagged ? ` <span class="flag">flagged</span>` : ''}
+          ${t.flag_reason ? `<div class="dim clip">${V.esc(t.flag_reason)}</div>` : ''}</td>
+        <td class="num ${t.seconds_spent != null && t.seconds_spent < t.min_seconds ? 'bad' : ''}">${V.mmss(t.seconds_spent)}</td>
+        <td>${V.statusPill(t.status)}</td>
+        <td class="dim">${V.ago(t.started_at)}</td>
+      </tr>`).join('')}</tbody></table></div>`
+      : '<div class="pad muted">No tasks.</div>'}
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Wallet</h2></div>
+    ${ledger.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>When</th><th>What</th><th class="right">Amount</th></tr></thead>
+      <tbody>${ledger.map(l => `<tr>
+        <td class="dim">${V.ago(l.created_at)}</td>
+        <td class="clip">${V.esc(l.note || l.kind)}</td>
+        <td class="num right ${l.amount >= 0 ? 'pos' : 'neg'}">${l.amount >= 0 ? '+' : '-'}${V.money(Math.abs(l.amount))}</td>
+      </tr>`).join('')}</tbody></table></div>`
+      : '<div class="pad muted">No money has moved.</div>'}
+  </div>
+</div>
+
+${jobs.length ? `<div class="card">
+  <div class="card-head"><h2>Jobs posted</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Title</th><th>Rate</th><th>Filled</th><th>Held</th><th>State</th></tr></thead>
+    <tbody>${jobs.map(j => `<tr>
+      <td><a class="link" href="/jobs/${j.id}">${V.esc(j.title)}</a></td>
+      <td class="num">${V.money(j.rate)}</td>
+      <td class="num">${j.slots_filled} / ${j.slots}</td>
+      <td class="num">${V.money(money.escrowRemaining(j.id))}</td>
+      <td>${V.statusPill(j.status)}</td>
+    </tr>`).join('')}</tbody></table></div>
+</div>` : ''}
+
+${reportsAgainst.length ? `<div class="card">
+  <div class="card-head"><h2>Reported ${reportsAgainst.length} time${reportsAgainst.length === 1 ? '' : 's'}</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>When</th><th>Reason</th><th>Detail</th><th>Result</th></tr></thead>
+    <tbody>${reportsAgainst.map(r => `<tr>
+      <td class="dim">${V.ago(r.created_at)}</td><td>${V.esc(r.reason)}</td>
+      <td class="clip">${V.esc(r.detail || '')}</td><td>${V.statusPill(r.status)}</td>
+    </tr>`).join('')}</tbody></table></div>
+</div>` : ''}
+
+<div class="two">
+  <div class="card">
+    <div class="card-head"><h2>Sign-ins</h2></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>When</th><th>Address</th></tr></thead>
+      <tbody>${logins.map(l => `<tr>
+        <td class="dim">${V.ago(l.created_at)}</td>
+        <td class="mono">${V.esc(l.ip || '')}</td>
+      </tr>`).join('') || '<tr><td colspan="2" class="muted pad">None.</td></tr>'}</tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Others on their connection</h2></div>
+    ${peers.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>User</th><th>Role</th><th>Last seen</th></tr></thead>
+      <tbody>${peers.map(p => `<tr>
+        <td><a class="link" href="/admin/users/${p.id}">${V.esc(p.name)}</a>
+          <div class="dim">${V.esc(p.email)}</div></td>
+        <td>${V.esc(p.role)}</td><td class="dim">${V.ago(p.last_login)}</td>
+      </tr>`).join('')}</tbody></table></div>
+      <div class="pad"><p class="fine">Shared addresses are normal here &mdash; mobile
+        networks, offices and families all produce this. Weigh it with everything else
+        on this page, never on its own.</p></div>`
+      : '<div class="pad muted">Nobody else has signed in from their address.</div>'}
+  </div>
+</div>`,
   });
 });
 
@@ -1985,6 +2258,14 @@ app.get('/account', need(), (req, res) => {
     'SELECT ip, created_at FROM logins WHERE user_id = ? ORDER BY id DESC LIMIT 8'
   ).all(u.id);
 
+  const pending = db.prepare(
+    "SELECT * FROM role_requests WHERE user_id = ? AND status = 'pending'"
+  ).get(u.id);
+
+  const past = db.prepare(
+    "SELECT * FROM role_requests WHERE user_id = ? AND status != 'pending' ORDER BY id DESC LIMIT 3"
+  ).all(u.id);
+
   send(req, res, {
     title: 'Account', active: 'account',
     body: `
@@ -2010,20 +2291,42 @@ app.get('/account', need(), (req, res) => {
       ? '<p class="muted">Post tasks, fund them up front, and review the proof that comes back. Your balance and history stay exactly as they are.</p>'
       : '<p class="muted">Do tasks yourself and get paid when a buyer approves them. Your balance and history stay exactly as they are.</p>'}
 
-    ${blockers.length ? `
+    ${pending ? `
+      <div class="alert alert-warn">
+        <b>Your request is with an admin.</b>
+        Asked ${V.ago(pending.created_at)} to become a ${V.esc(pending.to_role)}.
+        You will get a notice here when it is decided.
+      </div>
+      <form method="post" action="/account/role/withdraw">${csrfField(req)}
+        <button class="btn btn-ghost btn-sm" type="submit">Withdraw the request</button></form>`
+    : blockers.length ? `
       <div class="alert alert-warn">
         <b>Finish this first:</b>
         <ul class="tight">${blockers.map(b => `<li>${V.esc(b)}</li>`).join('')}</ul>
         Switching now would leave other people waiting on you.
       </div>`
-      : `<form method="post" action="/account/role">
-           ${csrfField(req)}
-           <input type="hidden" name="role" value="${other}">
-           <button class="btn" type="submit">Switch to ${other === 'merchant' ? 'a buyer account' : 'a worker account'}</button>
-         </form>
-         <p class="fine">You can switch back later, as long as nothing is left in progress.</p>`}
+    : `<form method="post" action="/account/role">
+         ${csrfField(req)}
+         <input type="hidden" name="role" value="${other}">
+         ${V.field({ label: 'Why do you want to switch?', name: 'reason', type: 'textarea', rows: 3,
+           required: true, hint: 'An admin reads this. A sentence or two is enough.' })}
+         <button class="btn" type="submit">Ask to become ${other === 'merchant' ? 'a buyer' : 'a worker'}</button>
+       </form>
+       <p class="fine">This is not automatic &mdash; an admin checks it first. Usually within a day.</p>`}
   </div>`}
 </div>
+
+${past.length ? `<div class="card">
+  <div class="card-head"><h2>Past requests</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Asked</th><th>Change</th><th>Result</th><th>Admin said</th></tr></thead>
+    <tbody>${past.map(r => `<tr>
+      <td class="dim">${V.ago(r.created_at)}</td>
+      <td>${V.esc(r.from_role)} &rarr; ${V.esc(r.to_role)}</td>
+      <td>${V.statusPill(r.status)}</td>
+      <td class="dim">${V.esc(r.admin_note || '')}</td>
+    </tr>`).join('')}</tbody></table></div>
+</div>` : ''}
 
 <div class="card">
   <div class="card-head"><h2>Recent sign-ins</h2></div>
@@ -2050,12 +2353,126 @@ app.post('/account/role', need(), (req, res) => {
   const blockers = switchBlockers(u);
   if (blockers.length) return fail(res, 'Finish this first: ' + blockers.join('; '));
 
-  db.prepare('UPDATE users SET role = ? WHERE id = ?').run(want, u.id);
-  audit(u.id, 'role_switched', `user:${u.id}`, { from: u.role, to: want }, req.ip);
-  back(res, want === 'merchant' ? '/merchant' : '/worker',
-    want === 'merchant'
-      ? 'You are a buyer now. Add funds, then post your first job.'
-      : 'You are a worker now. Find a task to get started.', 'ok');
+  const reason = String(req.body.reason || '').trim().slice(0, 500);
+  if (reason.length < 10) {
+    return fail(res, 'Tell us in a sentence or two why you want to switch. An admin reads it.');
+  }
+
+  try {
+    db.prepare('INSERT INTO role_requests (user_id, from_role, to_role, reason) VALUES (?, ?, ?, ?)')
+      .run(u.id, u.role, want, reason);
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) {
+      return back(res, '/account', 'You already have a request waiting.', 'info');
+    }
+    throw err;
+  }
+
+  audit(u.id, 'role_requested', `user:${u.id}`, { from: u.role, to: want }, req.ip);
+  back(res, '/account', 'Sent. An admin will look at it, usually within a day.', 'ok');
+});
+
+app.post('/account/role/withdraw', need(), (req, res) => {
+  db.prepare("UPDATE role_requests SET status = 'withdrawn', reviewed_at = datetime('now') WHERE user_id = ? AND status = 'pending'")
+    .run(req.user.id);
+  back(res, '/account', 'Request withdrawn.', 'info');
+});
+
+// ---------------------------------------------------------- admin: requests
+app.get('/admin/roles', need('admin'), (req, res) => {
+  const rows = db.prepare(`
+    SELECT r.*, u.name, u.email, u.status AS user_status, u.strikes, u.created_at AS joined,
+      (SELECT COUNT(*) FROM submissions WHERE worker_id = u.id AND status = 'approved') AS approved,
+      (SELECT COUNT(*) FROM submissions WHERE worker_id = u.id AND status = 'rejected') AS rejected,
+      (SELECT COALESCE(SUM(amount), 0) FROM ledger WHERE user_id = u.id) AS balance
+    FROM role_requests r JOIN users u ON u.id = r.user_id
+    ORDER BY (r.status = 'pending') DESC, r.id DESC LIMIT 100
+  `).all();
+
+  send(req, res, {
+    title: 'Role requests', active: 'roles', wide: true,
+    body: `<h1>Role requests</h1>
+<p class="muted">Somebody asking to change which side of the marketplace they are on.
+   Worth a look at their history before approving a move to buyer &mdash; a buyer can
+   fund jobs, and a worker with a bad record moving across is the pattern to watch for.</p>
+
+${rows.length ? rows.map(r => `
+<div class="card">
+  <div class="card-head">
+    <div><b>${V.esc(r.name)}</b> <span class="dim">${V.esc(r.email)}</span>
+      <div class="dim">${V.esc(r.from_role)} &rarr; <b>${V.esc(r.to_role)}</b> · asked ${V.ago(r.created_at)}</div></div>
+    ${V.statusPill(r.status)}
+  </div>
+  <div class="pad">
+    <div class="mini-stats">
+      <span><b>${r.approved}</b> approved</span>
+      <span class="${r.rejected ? 'bad' : ''}"><b>${r.rejected}</b> rejected</span>
+      <span><b>${r.strikes}</b> strikes</span>
+      <span><b>${V.money(r.balance)}</b> balance</span>
+      <span>joined ${V.ago(r.joined)}</span>
+      <span>${V.statusPill(r.user_status)}</span>
+    </div>
+    <h3>Why they asked</h3>
+    <div class="prose">${V.br(r.reason || '')}</div>
+    ${r.admin_note ? `<h3>Decision</h3><div class="prose muted">${V.br(r.admin_note)}</div>` : ''}
+    <p><a class="link" href="/admin/users/${r.user_id}">Open their full record &rarr;</a></p>
+
+    ${r.status === 'pending' ? `<div class="review-actions">
+      <form method="post" action="/admin/roles/${r.id}/approve">${csrfField(req)}
+        <button class="btn" type="submit">Approve the switch</button></form>
+      <form method="post" action="/admin/roles/${r.id}/reject">${csrfField(req)}
+        <input type="text" name="note" placeholder="Why not?" required maxlength="200">
+        <button class="btn btn-danger" type="submit">Reject</button></form>
+    </div>` : ''}
+  </div>
+</div>`).join('') : '<div class="empty">No requests.</div>'}`,
+  });
+});
+
+app.post('/admin/roles/:id/approve', need('admin'), (req, res) => {
+  const id = Number(req.params.id);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const r = db.prepare("SELECT * FROM role_requests WHERE id = ? AND status = 'pending'").get(id);
+    if (!r) throw new Error('That request is already decided.');
+
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(r.user_id);
+    if (!user) throw new Error('That account no longer exists.');
+    if (user.role === 'admin') throw new Error('Admin accounts do not switch.');
+
+    // Their situation may have changed while the request sat in the queue.
+    const blockers = switchBlockers(user);
+    if (blockers.length) throw new Error('They now have work in flight: ' + blockers.join('; '));
+
+    db.prepare('UPDATE users SET role = ? WHERE id = ?').run(r.to_role, r.user_id);
+    db.prepare(`UPDATE role_requests SET status = 'approved', reviewed_by = ?,
+                reviewed_at = datetime('now') WHERE id = ?`).run(req.user.id, id);
+    db.prepare(`INSERT INTO notices (user_id, kind, title, body) VALUES (?, 'role', ?, ?)`)
+      .run(r.user_id, 'Your account type was changed',
+        `You are now ${r.to_role === 'merchant' ? 'a buyer and can post jobs' : 'a worker and can take tasks'}. Your balance and history are unchanged.`);
+    db.exec('COMMIT');
+    audit(req.user.id, 'role_approved', `user:${r.user_id}`, { to: r.to_role }, req.ip);
+    back(res, '/admin/roles', 'Approved.', 'ok');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    fail(res, err.message);
+  }
+});
+
+app.post('/admin/roles/:id/reject', need('admin'), (req, res) => {
+  const note = String(req.body.note || '').trim().slice(0, 200);
+  if (!note) return fail(res, 'Give a reason - they will read it.');
+
+  const r = db.prepare("SELECT * FROM role_requests WHERE id = ? AND status = 'pending'").get(Number(req.params.id));
+  if (!r) return fail(res, 'That request is already decided.');
+
+  db.prepare(`UPDATE role_requests SET status = 'rejected', admin_note = ?, reviewed_by = ?,
+              reviewed_at = datetime('now') WHERE id = ?`).run(note, req.user.id, r.id);
+  db.prepare(`INSERT INTO notices (user_id, kind, title, body) VALUES (?, 'role', ?, ?)`)
+    .run(r.user_id, 'Your request to switch was not approved',
+      note + String.fromCharCode(10,10) + 'If you think this is wrong, message support.');
+  audit(req.user.id, 'role_rejected', `user:${r.user_id}`, { note }, req.ip);
+  back(res, '/admin/roles', 'Rejected, and they have been told why.', 'info');
 });
 
 // ======================================================================
@@ -2374,7 +2791,7 @@ const server = app.listen(PORT, HOST, () => {
   spam.releaseExpiredHolds();
   const on = x => (x ? 'on' : 'off');
   console.log('');
-  console.log('  Work Remote Job');
+  console.log('  Remote Work BD');
   console.log(`  http://localhost:${PORT}`);
   console.log('');
   console.log(`  data      ${DATA_DIR}`);

@@ -304,6 +304,48 @@ const MIGRATIONS = [
       CREATE INDEX idx_gwe_created ON gateway_events(id DESC);
     `,
   },
+  {
+    id: 4,
+    name: 'role requests and testimonials',
+    sql: `
+      -- Switching side is no longer instant. A request is reviewed by an
+      -- admin, so somebody cannot quietly become a buyer to work around a
+      -- history, and so a real buyer can be looked at before they are trusted
+      -- with a funded job.
+      CREATE TABLE role_requests (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        from_role   TEXT NOT NULL,
+        to_role     TEXT NOT NULL,
+        reason      TEXT,
+        status      TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending','approved','rejected','withdrawn')),
+        admin_note  TEXT,
+        reviewed_by INTEGER REFERENCES users(id),
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        reviewed_at TEXT
+      );
+      -- One open request at a time, so the queue cannot be flooded.
+      CREATE UNIQUE INDEX idx_rolereq_open ON role_requests(user_id)
+        WHERE status = 'pending';
+      CREATE INDEX idx_rolereq_status ON role_requests(status, id DESC);
+
+      -- What the home page shows. Editable by an admin rather than hard-coded,
+      -- so the demo entries can be swapped for real ones without a deploy.
+      CREATE TABLE testimonials (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT NOT NULL,
+        role       TEXT,
+        body       TEXT NOT NULL,
+        earned     TEXT,
+        is_demo    INTEGER NOT NULL DEFAULT 1,
+        visible    INTEGER NOT NULL DEFAULT 1,
+        sort       INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_testi_visible ON testimonials(visible, sort);
+    `,
+  },
 ];
 
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (

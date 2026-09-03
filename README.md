@@ -1,4 +1,4 @@
-# Work Remote Job
+# Remote Work BD
 
 A microjob marketplace. Buyers post batches of small tasks and fund them up
 front; workers do a task, send proof, and are paid when it is approved. The
@@ -327,8 +327,13 @@ it before you rely on it.
 
 ## Roles
 
-A person picks a side when they first sign in, and can change it later from
-**Account** — but not while work is in flight. A merchant with submissions
+A person picks a side when they first sign in. Changing it later is a
+**request an admin approves**, not a switch — a buyer can fund jobs and set the
+terms workers are judged on, so somebody moving across should be looked at
+first. The request carries their reason, and the admin sees their approval
+rate, rejections, strikes and balance beside it.
+
+Requests are also blocked while work is in flight. A merchant with submissions
 waiting owes those workers a decision, and a worker holding open tasks owes
 that buyer proof or the slot back, so the switch is blocked until those are
 cleared and the message says what to finish.
@@ -343,10 +348,32 @@ than the current role.
 review submissions, pause or cancel. Cancelling returns everything not already
 paid out, but submissions already sent still need a decision.
 
-**Admin** — confirm deposits, pay out withdrawals, handle reports, suspend and
-restore accounts. The first admin account is also the platform's own account:
+**Admin** — confirm deposits, pay out withdrawals, handle reports, decide role
+requests, suspend and restore accounts. **Admin → Users → a name** opens one
+person's whole record on a page: earnings, deposits, withdrawals, every task
+with the time spent, jobs posted, reports against them, sign-in addresses and
+who else shares their connection. Built because judging a report by flicking
+between four screens is how bad suspensions happen. The first admin account is also the platform's own account:
 commission from each approved task is credited to it, so every unit that leaves
 escrow lands somewhere.
+
+---
+
+## The home page numbers
+
+Every figure is counted from the database. None is typed into a settings box,
+because the moment one number is invented nobody can tell which of the others
+are real — and this site asks people to trust it with their time and money.
+
+A figure that is genuinely zero is left out rather than printed as "0". Not to
+flatter the site, but because "0 tasks approved" tells a visitor nothing except
+that it is new, which the rest of the page already makes obvious. With nothing
+to show at all, the panel says so plainly.
+
+The reviews come from the `testimonials` table. The seeded ones are marked
+`is_demo`, and while any are still marked that way the page prints "Example
+reviews while the site is new" above them. Replace them with real ones and that
+line disappears on its own.
 
 ---
 

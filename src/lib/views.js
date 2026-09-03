@@ -12,7 +12,29 @@ const esc = s => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-const SITE = 'Work Remote Job';
+// The header mark. Uses assets/logo.png when it is there, and otherwise draws
+// the same idea inline - a ring, a node and a rising arrow - so the site never
+// shows a broken image while artwork is being prepared.
+const fs = require('fs');
+const path = require('path');
+const LOGO = path.join(__dirname, '..', 'web', 'assets', 'logo.png');
+
+function logoMark() {
+  if (fs.existsSync(LOGO)) {
+    return '<img class="brand-mark-img" src="/assets/logo.png" alt="" width="32" height="32">';
+  }
+  return `<span class="brand-mark" aria-hidden="true">
+    <svg viewBox="0 0 32 32" width="20" height="20" fill="none">
+      <circle cx="16" cy="16" r="12" stroke="currentColor" stroke-width="2"/>
+      <path d="M9 20l5-5 3 3 6-7" stroke="currentColor" stroke-width="2.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M19 11h5v5" stroke="currentColor" stroke-width="2.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </span>`;
+}
+
+const SITE = 'Remote Work BD';
 
 // Newlines to <br>, after escaping. Written once here so no template has to
 // carry an escaped regex around.
@@ -37,6 +59,7 @@ function nav(user, active) {
       <a href="/admin/money"${active === 'money' ? ' class="on"' : ''}>Money</a>
       <a href="/admin/users"${active === 'users' ? ' class="on"' : ''}>Users</a>
       <a href="/admin/connections"${active === 'connections' ? ' class="on"' : ''}>Connections</a>
+      <a href="/admin/roles"${active === 'roles' ? ' class="on"' : ''}>Roles</a>
       <a href="/admin/gateway"${active === 'gateway' ? ' class="on"' : ''}>Gateway</a>
       <a href="/admin/support"${active === 'support' ? ' class="on"' : ''}>Support</a>
       <span class="nav-gap"></span>
@@ -86,8 +109,8 @@ function layout({ title, user, active, body, flash, wide, notices, csrf }) {
 <header class="top">
   <div class="wrap top-inner">
     <a href="/" class="brand">
-      <span class="brand-mark">WR</span>
-      <span class="brand-name">Work Remote <b>Job</b></span>
+      ${logoMark()}
+      <span class="brand-name">Remote Work <b>BD</b></span>
     </a>
     <nav class="nav">${nav(user, active)}</nav>
   </div>
