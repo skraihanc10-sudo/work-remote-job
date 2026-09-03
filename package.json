@@ -1,0 +1,18 @@
+{
+  "name": "work-remote-job",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Work Remote Job - microjob marketplace",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "seed": "node src/seed.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "multer": "^2.3.0"
+  }
+}
