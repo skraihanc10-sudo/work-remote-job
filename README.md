@@ -444,6 +444,29 @@ line disappears on its own.
 
 ---
 
+## On a phone
+
+Most people here are on one, so the navigation is built for it rather than
+squeezed into it.
+
+The header collapses to the logo, a balance pill and a burger. The four or five
+things people actually came to do sit in a **bottom tab bar**, one thumb away;
+everything else lives in the drawer. All three renderings — desktop bar, drawer,
+tab bar — come from a single list in `navItems()`. Three hand-written copies
+drift the first time a link is added, and the phone is the one that quietly
+loses a page.
+
+`app.css` and `app.js` are requested with a version taken from the file's own
+modification time. Without it they are cached for an hour, so a deploy leaves
+people on the old stylesheet — which does not look like caching, it looks like a
+broken site.
+
+Every page is checked at 390px for horizontal overflow, which is the defect that
+makes a site feel broken on a phone. Wide content (tables, the admin screens)
+scrolls inside its own container so the page body never does.
+
+---
+
 ## Where things live
 
 ```

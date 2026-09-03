@@ -143,3 +143,32 @@
     }
   });
 })();
+
+/* The phone menu. Kept in markup and toggled with the hidden attribute so the
+   drawer's links are in the page for anyone whose JavaScript never runs - they
+   simply see them in the normal flow instead of a panel. */
+(function () {
+  'use strict';
+  var burger = document.getElementById('burger');
+  var drawer = document.getElementById('drawer');
+  var close = document.getElementById('drawer-close');
+  if (!burger || !drawer) return;
+
+  function open(yes) {
+    drawer.hidden = !yes;
+    burger.setAttribute('aria-expanded', String(yes));
+    document.body.classList.toggle('drawer-open', yes);
+  }
+
+  burger.addEventListener('click', function () { open(drawer.hidden); });
+  if (close) close.addEventListener('click', function () { open(false); });
+
+  // Tapping the dimmed area behind the panel closes it, which is what everyone
+  // tries first.
+  drawer.addEventListener('click', function (e) {
+    if (e.target === drawer) open(false);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !drawer.hidden) open(false);
+  });
+})();

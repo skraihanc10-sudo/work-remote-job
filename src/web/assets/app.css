@@ -751,3 +751,93 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
   .foot-grid { grid-template-columns: 1fr 1fr; gap: 26px; }
   .foot-brand { grid-column: 1 / -1; }
 }
+
+/* ==================================================================== phone
+   Most people here are on a phone. The desktop nav becomes a burger plus a
+   drawer, and the four things people actually came to do move to a bottom bar
+   one thumb away instead of behind a menu. */
+.head-mobile { display: none; align-items: center; gap: 10px; margin-left: auto; }
+.head-bal {
+  font-family: var(--head); font-weight: 700; font-size: 14px;
+  color: var(--green); background: var(--green-bg);
+  padding: 6px 12px; border-radius: 100px; white-space: nowrap;
+}
+.burger {
+  width: 42px; height: 42px; border-radius: 50%; flex: none;
+  background: var(--navy); border: none; cursor: pointer;
+  display: grid; place-content: center; gap: 4px; padding: 0;
+}
+.burger span { display: block; width: 17px; height: 2px; background: #fff; border-radius: 2px; }
+
+/* drawer */
+.drawer { position: fixed; inset: 0; z-index: 80; }
+.drawer::before {
+  content: ''; position: absolute; inset: 0; background: rgba(12,20,38,.55);
+}
+.drawer-panel {
+  position: absolute; top: 0; right: 0; bottom: 0; width: min(86vw, 330px);
+  background: var(--navy); color: #fff; display: flex; flex-direction: column;
+  overflow-y: auto; box-shadow: -8px 0 30px rgba(0,0,0,.3);
+}
+.drawer-top {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 20px; border-bottom: 1px solid rgba(255,255,255,.12);
+  font-weight: 600; font-size: 15px;
+}
+.drawer-close {
+  background: none; border: none; color: rgba(255,255,255,.75);
+  font-size: 28px; line-height: 1; cursor: pointer; padding: 0 4px;
+}
+.drawer-balance {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,.12);
+}
+.drawer-balance span { font-size: 13px; color: rgba(255,255,255,.6); }
+.drawer-balance b { font-family: var(--head); font-size: 19px; color: #4CC97A; }
+.drawer-links { display: flex; flex-direction: column; padding: 8px 0; }
+.drawer-links a {
+  color: rgba(255,255,255,.85); padding: 13px 20px; font-size: 15.5px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+}
+.drawer-links a:hover, .drawer-links a.on { background: rgba(255,255,255,.08); color: #fff; text-decoration: none; }
+.drawer-links a.on { box-shadow: inset 3px 0 0 #4CC97A; }
+.drawer-links a.danger { color: #FFAFA6; }
+.drawer-foot {
+  margin-top: auto; padding: 18px 20px; display: flex; flex-wrap: wrap; gap: 14px;
+  border-top: 1px solid rgba(255,255,255,.12);
+}
+.drawer-foot a { color: rgba(255,255,255,.6); font-size: 13px; }
+body.drawer-open { overflow: hidden; }
+
+/* bottom tab bar */
+.tabbar { display: none; }
+
+@media (max-width: 900px) {
+  .nav { display: none; }
+  .head-mobile { display: flex; }
+  .top-inner { min-height: 58px; flex-wrap: nowrap; gap: 12px; }
+  .brand-name { font-size: 15px; }
+  .balance-chip { display: none; }
+
+  .tabbar {
+    display: grid; position: fixed; left: 0; right: 0; bottom: 0; z-index: 70;
+    grid-auto-flow: column; grid-auto-columns: 1fr;
+    background: var(--card); border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -2px 14px rgba(27,42,87,.08);
+  }
+  .tabbar a {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 9px 4px 8px; color: var(--muted); font-size: 10.5px;
+  }
+  .tabbar a:hover { text-decoration: none; }
+  .tabbar a.on { color: var(--green); }
+  .tab-ico { width: 22px; height: 22px; }
+  .tab-ico svg { width: 22px; height: 22px; display: block; }
+  .tab-label { line-height: 1.1; text-align: center; }
+  /* Clear the bar so the last row of any page is reachable. */
+  main.wrap { padding-bottom: 86px; }
+  .foot-bottom { padding-bottom: 78px; }
+}
+
+@media (min-width: 901px) { .drawer { display: none !important; } }

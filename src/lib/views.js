@@ -19,6 +19,20 @@ const fs = require('fs');
 const path = require('path');
 const LOGO = path.join(__dirname, '..', 'web', 'assets', 'logo.png');
 
+/* Stylesheet and script are cached for an hour, so without a version in the
+   URL a deploy leaves people on the old CSS until it expires - which looks
+   exactly like a broken site. The number is the file's own modification time,
+   so it changes when the file does and not otherwise. */
+function assetVersion(file) {
+  try {
+    return String(Math.floor(fs.statSync(path.join(__dirname, '..', 'web', 'assets', file)).mtimeMs));
+  } catch (err) {
+    return '0';
+  }
+}
+const CSS_V = assetVersion('app.css');
+const JS_V = assetVersion('app.js');
+
 function logoMark() {
   if (fs.existsSync(LOGO)) {
     return '<img class="brand-mark-img" src="/assets/logo.png" alt="" width="32" height="32">';
@@ -43,57 +57,125 @@ function br(text) {
   return esc(text).replace(NL, '<br>');
 }
 
-function nav(user, active) {
+/* One list of destinations, rendered three ways: the desktop bar, the phone
+   drawer, and the bottom tab bar. Keeping them from one source is the only way
+   they stay in step - three hand-written copies drift the first time a link is
+   added and then the phone quietly loses a page.
+
+   `tab` marks the handful that earn a place in the bottom bar. On a phone most
+   people are here to do one of four things, and those four should be one thumb
+   away rather than behind a menu.
+*/
+function navItems(user) {
   if (!user) {
-    return `
-      <a href="/jobs"${active === 'jobs' ? ' class="on"' : ''}>Browse jobs</a>
-      <a href="/activity"${active === 'activity' ? ' class="on"' : ''}>Live activity</a>
-      <a href="/payments"${active === 'payments' ? ' class="on"' : ''}>Payment proof</a>
-      <a href="/how-it-works"${active === 'how' ? ' class="on"' : ''}>How it works</a>
-      <span class="nav-gap"></span>
-      <a href="/login" class="btn btn-sm">Continue with Google</a>`;
+    return [
+      { href: '/jobs', label: 'Browse jobs', key: 'jobs', tab: true, icon: 'search' },
+      { href: '/activity', label: 'Live activity', key: 'activity', tab: true, icon: 'pulse' },
+      { href: '/payments', label: 'Payment proof', key: 'payments', tab: true, icon: 'cash' },
+      { href: '/how-it-works', label: 'How it works', key: 'how' },
+      { href: '/faq', label: 'Questions', key: 'faq' },
+      { href: '/login', label: 'Continue with Google', key: 'login', cta: true, tab: true, icon: 'user' },
+    ];
   }
 
   if (user.role === 'admin') {
-    return `
-      <a href="/admin"${active === 'admin' ? ' class="on"' : ''}>Overview</a>
-      <a href="/admin/reports"${active === 'reports' ? ' class="on"' : ''}>Reports</a>
-      <a href="/admin/money"${active === 'money' ? ' class="on"' : ''}>Money</a>
-      <a href="/admin/users"${active === 'users' ? ' class="on"' : ''}>Users</a>
-      <a href="/admin/connections"${active === 'connections' ? ' class="on"' : ''}>Connections</a>
-      <a href="/admin/roles"${active === 'roles' ? ' class="on"' : ''}>Roles</a>
-      <a href="/admin/gateway"${active === 'gateway' ? ' class="on"' : ''}>Gateway</a>
-      <a href="/admin/settings"${active === 'settings' ? ' class="on"' : ''}>Settings</a>
-      <a href="/admin/support"${active === 'support' ? ' class="on"' : ''}>Support</a>
-      <span class="nav-gap"></span>
-      <span class="who">${esc(user.name)} · admin</span>
-      <a href="/logout" class="btn btn-ghost btn-sm">Sign out</a>`;
+    return [
+      { href: '/admin', label: 'Overview', key: 'admin', tab: true, icon: 'grid' },
+      { href: '/admin/users', label: 'Users', key: 'users', tab: true, icon: 'user' },
+      { href: '/admin/money', label: 'Money', key: 'money', tab: true, icon: 'cash' },
+      { href: '/admin/support', label: 'Support', key: 'support', tab: true, icon: 'chat' },
+      { href: '/admin/reports', label: 'Reports', key: 'reports' },
+      { href: '/admin/roles', label: 'Roles', key: 'roles' },
+      { href: '/admin/connections', label: 'Connections', key: 'connections' },
+      { href: '/admin/gateway', label: 'Gateway', key: 'gateway' },
+      { href: '/admin/settings', label: 'Settings', key: 'settings' },
+    ];
   }
 
   if (user.role === 'merchant') {
-    return `
-      <a href="/merchant"${active === 'dash' ? ' class="on"' : ''}>Dashboard</a>
-      <a href="/merchant/jobs"${active === 'myjobs' ? ' class="on"' : ''}>My jobs</a>
-      <a href="/merchant/review"${active === 'review' ? ' class="on"' : ''}>Review work</a>
-      <a href="/wallet"${active === 'wallet' ? ' class="on"' : ''}>Wallet</a>
-      <a href="/referrals"${active === 'referrals' ? ' class="on"' : ''}>Refer</a>
-      <a href="/support"${active === 'support' ? ' class="on"' : ''}>Support</a>
-      <span class="nav-gap"></span>
-      <a href="/account"${active === 'account' ? ' class="on"' : ''} class="who-link">${esc(user.name)}</a>
-      <a href="/merchant/jobs/new" class="btn btn-sm">Post a job</a>
-      <a href="/logout" class="btn btn-ghost btn-sm">Sign out</a>`;
+    return [
+      { href: '/merchant', label: 'Dashboard', key: 'dash', tab: true, icon: 'grid' },
+      { href: '/merchant/jobs', label: 'My jobs', key: 'myjobs', tab: true, icon: 'list' },
+      { href: '/merchant/review', label: 'Review work', key: 'review', tab: true, icon: 'check' },
+      { href: '/wallet', label: 'Wallet', key: 'wallet', tab: true, icon: 'cash' },
+      { href: '/merchant/jobs/new', label: 'Post a job', key: 'newjob', cta: true, tab: true, icon: 'plus' },
+      { href: '/referrals', label: 'Refer a friend', key: 'referrals' },
+      { href: '/support', label: 'Support', key: 'support' },
+      { href: '/account', label: 'Account', key: 'account' },
+    ];
   }
 
-  return `
-    <a href="/worker"${active === 'dash' ? ' class="on"' : ''}>Dashboard</a>
-    <a href="/jobs"${active === 'jobs' ? ' class="on"' : ''}>Find work</a>
-    <a href="/worker/tasks"${active === 'tasks' ? ' class="on"' : ''}>My tasks</a>
-    <a href="/wallet"${active === 'wallet' ? ' class="on"' : ''}>Wallet</a>
-    <a href="/referrals"${active === 'referrals' ? ' class="on"' : ''}>Refer</a>
-    <a href="/support"${active === 'support' ? ' class="on"' : ''}>Support</a>
-    <span class="nav-gap"></span>
-    <a href="/account" class="who-link">${esc(user.name)}</a>
-    <a href="/logout" class="btn btn-ghost btn-sm">Sign out</a>`;
+  return [
+    { href: '/worker', label: 'Dashboard', key: 'dash', tab: true, icon: 'grid' },
+    { href: '/jobs', label: 'Find work', key: 'jobs', tab: true, icon: 'search' },
+    { href: '/worker/tasks', label: 'My tasks', key: 'tasks', tab: true, icon: 'list' },
+    { href: '/wallet', label: 'Wallet', key: 'wallet', tab: true, icon: 'cash' },
+    { href: '/referrals', label: 'Refer', key: 'referrals', tab: true, icon: 'gift' },
+    { href: '/support', label: 'Support', key: 'support' },
+    { href: '/account', label: 'Account', key: 'account' },
+  ];
+}
+
+const NAV_ICONS = {
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+  cash: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>',
+  gift: '<rect x="3" y="8" width="18" height="13" rx="1.5"/><path d="M12 8v13M3 12h18"/><path d="M12 8S10.5 3 8 4.5 10 8 12 8zM12 8s1.5-5 4-3.5S14 8 12 8z"/>',
+  chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
+  check: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/>',
+  plus: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
+  user: '<circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>',
+  pulse: '<path d="M2 12h4l3-8 5 16 3-8h5"/>',
+};
+
+function navIcon(name) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+    stroke-linecap="round" stroke-linejoin="round">${NAV_ICONS[name] || NAV_ICONS.grid}</svg>`;
+}
+
+function deskNav(user, active) {
+  const items = navItems(user);
+  const main = items.filter(i => !i.cta);
+  const cta = items.filter(i => i.cta);
+  return main.map(i =>
+      `<a href="${i.href}"${i.key === active ? ' class="on"' : ''}>${esc(i.label)}</a>`).join(String.fromCharCode(10))
+    + '<span class="nav-gap"></span>'
+    + (user ? `<a href="/account"${active === 'account' ? ' class="on"' : ''} class="who-link">${esc(user.name)}</a>` : '')
+    + cta.map(i => `<a href="${i.href}" class="btn btn-sm">${esc(i.label)}</a>`).join('')
+    + (user ? '<a href="/logout" class="btn btn-ghost btn-sm">Sign out</a>' : '');
+}
+
+function drawer(user, active) {
+  const items = navItems(user);
+  return `<div class="drawer" id="drawer" hidden>
+  <div class="drawer-panel">
+    <div class="drawer-top">
+      <span>${user ? esc(user.name) : 'Menu'}</span>
+      <button type="button" class="drawer-close" id="drawer-close" aria-label="Close menu">&times;</button>
+    </div>
+    ${user ? `<div class="drawer-balance"><span>Balance</span><b>${esc(money.fmt(money.balance(user.id)))}</b></div>` : ''}
+    <nav class="drawer-links">
+      ${items.map(i => `<a href="${i.href}"${i.key === active ? ' class="on"' : ''}>${esc(i.label)}</a>`).join('')}
+      ${user ? '<a href="/logout" class="danger">Sign out</a>' : ''}
+    </nav>
+    <div class="drawer-foot">
+      <a href="/how-it-works">How it works</a>
+      <a href="/faq">Questions</a>
+      <a href="/support">Support</a>
+    </div>
+  </div>
+</div>`;
+}
+
+function tabbar(user, active) {
+  const tabs = navItems(user).filter(i => i.tab).slice(0, 5);
+  return `<nav class="tabbar">
+    ${tabs.map(i => `<a href="${i.href}"${i.key === active ? ' class="on"' : ''}>
+      <span class="tab-ico">${navIcon(i.icon)}</span>
+      <span class="tab-label">${esc(i.label)}</span>
+    </a>`).join('')}
+  </nav>`;
 }
 
 function layout({ title, user, active, body, flash, wide, notices, csrf }) {
@@ -107,7 +189,7 @@ function layout({ title, user, active, body, flash, wide, notices, csrf }) {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Figtree:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="/assets/app.css">
+<link rel="stylesheet" href="/assets/app.css?v=${CSS_V}">
 </head>
 <body>
 
@@ -117,9 +199,17 @@ function layout({ title, user, active, body, flash, wide, notices, csrf }) {
       ${logoMark()}
       <span class="brand-name">Remote Work <b>BD</b></span>
     </a>
-    <nav class="nav">${nav(user, active)}</nav>
+    <nav class="nav">${deskNav(user, active)}</nav>
+    <div class="head-mobile">
+      ${user ? `<a class="head-bal" href="/wallet">${esc(money.fmt(bal))}</a>` : ''}
+      <button type="button" class="burger" id="burger" aria-label="Open menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
   </div>
 </header>
+
+${drawer(user, active)}
 
 ${user && user.status === 'suspended' ? `
 <div class="wrap"><div class="alert alert-stop">
@@ -204,7 +294,8 @@ ${body}
 </footer>
 
 ${user ? `<div class="balance-chip"><span>Balance</span><b>${esc(money.fmt(bal))}</b></div>` : ''}
-<script src="/assets/app.js" defer></script>
+${tabbar(user, active)}
+<script src="/assets/app.js?v=${JS_V}" defer></script>
 </body>
 </html>`;
 }
