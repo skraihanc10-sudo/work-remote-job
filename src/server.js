@@ -12,6 +12,7 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+
 const express = require('express');
 const multer = require('multer');
 
@@ -31,6 +32,19 @@ const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(express.urlencoded({ extended: false, limit: '256kb' }));
+
+/* Railway and most hosts poll this to decide whether a deploy came up. It
+   touches the database on purpose: a process that is listening but cannot read
+   its own data is not healthy, and saying so early is better than serving
+   errors to people. */
+app.get('/health', (req, res) => {
+  try {
+    db.prepare('SELECT 1').get();
+    res.json({ ok: true, gateways: { eps: eps.configured(), cryptomus: cryptomus.configured() } });
+  } catch (err) {
+    res.status(503).json({ ok: false, error: err.message });
+  }
+});
 
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -2139,5 +2153,17 @@ setInterval(() => {
 
 app.listen(PORT, HOST, () => {
   spam.releaseExpiredHolds();
-  console.log(`\n  Work Remote Job\n  http://localhost:${PORT}\n  data: ${DATA_DIR}\n`);
+  const on = x => (x ? 'on' : 'off');
+  console.log('');
+  console.log('  Work Remote Job');
+  console.log(`  http://localhost:${PORT}`);
+  console.log('');
+  console.log(`  data      ${DATA_DIR}`);
+  console.log(`  sign-in   ${google.configured() ? 'Google' : 'NOT CONFIGURED - nobody can sign in'}`);
+  console.log(`  admins    ${auth.adminEmails().join(', ') || 'none - set ADMIN_EMAILS'}`);
+  console.log(`  payments  EPS ${on(eps.configured())}, Cryptomus ${on(cryptomus.configured())}`);
+  if (process.env.ALLOW_DEV_LOGIN === '1') {
+    console.log('  dev login ENABLED - /dev-login?email=... (this machine only)');
+  }
+  console.log('');
 });

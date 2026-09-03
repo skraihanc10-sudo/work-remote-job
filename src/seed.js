@@ -21,17 +21,32 @@ if (!admins.length) {
   console.log('  Set ADMIN_EMAILS to the Google address that should run this site:\n');
   console.log('    ADMIN_EMAILS=you@gmail.com npm start\n');
 } else {
-  console.log('  Admin accounts (created on first Google sign-in):');
-  admins.forEach(e => console.log('    ' + e));
-  // Promote any that already exist.
+  console.log('  Admin accounts:');
   for (const email of admins) {
     const u = db.prepare('SELECT id, role FROM users WHERE lower(email) = ?').get(email);
-    if (u && u.role !== 'admin') {
+
+    if (!u) {
+      // Create the row now rather than waiting for a first Google sign-in.
+      // It has no google_sub, so it cannot be signed into from the internet -
+      // but /dev-login can reach it locally, and the moment that Google
+      // address does sign in, signInWithGoogle matches it by email and
+      // attaches the identity. Without this there is no way to see the admin
+      // side before Google is configured.
+      const info = db.prepare(`
+        INSERT INTO users (role, name, email, password_hash, email_verified)
+        VALUES ('admin', ?, ?, '', 1)
+      `).run(email.split('@')[0], email);
+      audit(null, 'seed_admin', `user:${Number(info.lastInsertRowid)}`);
+      console.log(`    ${email}  (created)`);
+    } else if (u.role !== 'admin') {
       db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(u.id);
       audit(null, 'promoted_admin', `user:${u.id}`);
-      console.log(`    (existing account ${email} promoted)`);
+      console.log(`    ${email}  (promoted)`);
+    } else {
+      console.log(`    ${email}`);
     }
   }
+  console.log('  They become usable the moment that Google address signs in.');
 }
 
 // -------------------------------------------------------------------- demo

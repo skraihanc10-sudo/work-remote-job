@@ -5,15 +5,110 @@ front; workers do a task, send proof, and are paid when it is approved. The
 money sits in escrow in between, so a worker is never asked to trust that a
 buyer will pay and a buyer never pays for work they have not seen.
 
+## Running it locally
+
 ```
 npm install
-npm run seed -- --demo
-ADMIN_EMAILS=you@gmail.com npm start        # http://localhost:4700
+copy .env.example .env      # cp on Mac/Linux, then edit it
+npm run demo                # creates the admin, demo buyer, workers and jobs
+npm start                   # http://localhost:4700
 ```
 
-The demo flag creates a funded buyer, two workers and three live jobs so the
-screens are not empty. Those accounts have no Google identity and cannot be
-signed into.
+Settings come from `.env`, so nothing has to be set in the shell. That matters
+on Windows: `X=1 npm start` works in bash and silently does nothing in
+PowerShell, which is a confusing first hour.
+
+The two lines to fill in before the first run:
+
+```
+ADMIN_EMAILS=your.google.address@gmail.com
+ALLOW_DEV_LOGIN=1
+```
+
+With `ALLOW_DEV_LOGIN=1` you can walk the whole site before Google is set up:
+
+| | |
+| --- | --- |
+| `/dev-login?email=your.google.address@gmail.com` | admin |
+| `/dev-login?email=buyer@example.com` | merchant, funded, with three live jobs |
+| `/dev-login?email=rakib@example.com` | worker |
+
+It only answers from the machine it is running on, and only when `NODE_ENV` is
+not `production`, so it cannot be reached on a server. Turn it off anyway once
+Google works.
+
+The boot banner tells you what is on:
+
+```
+  data      D:each\work-remote-job\data
+  sign-in   NOT CONFIGURED - nobody can sign in
+  admins    you@gmail.com
+  payments  EPS off, Cryptomus off
+  dev login ENABLED
+```
+
+---
+
+## Deploying
+
+Anywhere that runs Node 22.5 or newer and gives you a **persistent disk**. The
+disk is not optional: the database, the uploaded proof screenshots and the
+money are all in `DATA_DIR`, and a platform that throws the filesystem away on
+each deploy throws all of that away with it.
+
+### Railway
+
+1. Push to GitHub, then **New Project → Deploy from GitHub repo**.
+2. **Add a Volume**, mount path `/data`.
+3. Variables:
+
+```
+DATA_DIR=/data
+PUBLIC_URL=https://your-app.up.railway.app
+CSRF_SECRET=(a long random string)
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_REDIRECT_URI=https://your-app.up.railway.app/auth/google/callback
+ADMIN_EMAILS=you@gmail.com
+NODE_ENV=production
+```
+
+Do **not** set `ALLOW_DEV_LOGIN`.
+
+4. Deploy, then run `npm run seed` once from the Railway shell to create the
+   admin row.
+
+`railway.toml` sets the health check to `/health`, which reads the database
+rather than just answering — a process that is listening but cannot read its own
+data is not healthy.
+
+### A VPS
+
+```
+git clone <repo> && cd work-remote-job
+npm ci --omit=dev
+cp .env.example .env      # fill it in, set DATA_DIR to somewhere outside the repo
+npm run seed
+```
+
+Then put it behind nginx or Caddy with TLS and run it under systemd or pm2.
+Two things that bite:
+
+- **`trust proxy` is on**, so the recorded address is `X-Forwarded-For`. That is
+  correct behind a reverse proxy and wrong without one — if the app is also
+  reachable directly on its port, anyone can forge that header and the
+  connection history becomes worthless. Bind it to `127.0.0.1` and let only the
+  proxy reach it.
+- **Back up `DATA_DIR`.** Copying the folder is the whole backup procedure.
+  There is no other copy of anyone's balance.
+
+---
+
+## What the demo data gives you
+
+A funded buyer, two workers and three live jobs, so the job list and the
+dashboards are not empty. Those accounts have no Google identity and cannot be
+signed into from the internet.
 
 ---
 

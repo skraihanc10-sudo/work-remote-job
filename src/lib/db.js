@@ -16,6 +16,18 @@ const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs');
 const path = require('path');
 
+// Settings come from a .env file when there is one, so nobody has to fight
+// with shell syntax - `X=1 npm start` works in bash and silently does nothing
+// in PowerShell, which is a confusing first hour. Loaded here because every
+// entry point reaches this file first. Real environment variables still win,
+// which is what a hosting platform sets.
+try {
+  const envFile = path.join(__dirname, '..', '..', '.env');
+  if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
+} catch (err) {
+  console.warn('Could not read .env:', err.message);
+}
+
 const ROOT = path.join(__dirname, '..', '..');
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(ROOT, 'data');
 

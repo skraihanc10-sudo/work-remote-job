@@ -4,12 +4,14 @@
   "private": true,
   "description": "Work Remote Job - microjob marketplace",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.5"
   },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "seed": "node src/seed.js"
+    "seed": "node src/seed.js",
+    "setup": "node src/seed.js",
+    "demo": "node src/seed.js -- --demo"
   },
   "dependencies": {
     "express": "^5.2.1",
