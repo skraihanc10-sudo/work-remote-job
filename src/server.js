@@ -3631,6 +3631,9 @@ app.get('/admin/settings', need('admin'), (req, res) => {
 
 <div class="card pad">
   <h2>Test your email settings</h2>
+  <p class="muted">Not sure what to put in the fields above?
+     <a class="link" href="/admin/mail/setup">Use the guided setup</a> instead &mdash; it asks
+     for two things and fills in the rest.</p>
   <p class="muted">Sends one message to your own address, through the settings above.
      It tells you whether the connection and the password work before anybody
      else finds out the hard way.</p>
@@ -3702,6 +3705,248 @@ app.post('/admin/settings', need('admin'), (req, res) => {
 //  Mail: a test send, the outbox, and announcements to everybody
 // ====================================================================
 
+/* ====================================================================
+   Guided email setup.
+
+   The settings page has eight mail fields, and getting them right means
+   knowing which host goes with which provider, which port implies which kind
+   of encryption, and that Gmail wants an App Password rather than the one you
+   sign in with. That is a lot to know before anything works, and the failure
+   mode is silence - which reads as "the site is broken".
+
+   So this page asks for the two things only the owner can know, fills in the
+   rest from the provider they picked, and refuses to save anything until it
+   has actually opened a connection and signed in with it. Settings that were
+   never proven to work are how a site ends up quietly sending nothing.
+   ==================================================================== */
+
+const MAIL_PROVIDERS = {
+  gmail: {
+    name: 'Gmail',
+    note: 'A personal @gmail.com address, or Google Workspace.',
+    host: 'smtp.gmail.com', port: 587,
+    userLabel: 'Your full Gmail address',
+    userPlaceholder: 'you@gmail.com',
+    passLabel: 'App Password',
+    passHint: 'Sixteen letters from Google, not your normal password. Steps are below.',
+    free: 'Around 500 messages a day.',
+    steps: [
+      'Open myaccount.google.com and sign in with the address you want to send from.',
+      'Go to Security, and switch on 2-Step Verification if it is not already on. Google will not offer App Passwords without it.',
+      'Still under Security, open App passwords. If you cannot find it, go straight to myaccount.google.com/apppasswords.',
+      'Type any name you like, such as Remote Work BD, and press Create.',
+      'Google shows sixteen letters in four groups. Copy them, spaces and all, and paste them below. You will not be shown them again.',
+    ],
+  },
+  brevo: {
+    name: 'Brevo',
+    note: 'Built for sending to a list. Better deliverability than Gmail at volume.',
+    host: 'smtp-relay.brevo.com', port: 587,
+    userLabel: 'Your Brevo SMTP login',
+    userPlaceholder: 'you@example.com',
+    passLabel: 'SMTP key',
+    passHint: 'From the SMTP & API page in Brevo. Not your account password.',
+    free: '300 messages a day, free.',
+    steps: [
+      'Create an account at brevo.com and confirm your address.',
+      'Open the account menu, then SMTP & API.',
+      'On the SMTP tab, press Generate a new SMTP key and give it any name.',
+      'Copy the login and the key it shows you, and paste them below.',
+      'Under Senders, add and verify the address you want mail to come from.',
+    ],
+  },
+  zoho: {
+    name: 'Zoho Mail',
+    note: 'Free mail on your own domain.',
+    host: 'smtp.zoho.com', port: 587,
+    userLabel: 'Your Zoho address',
+    userPlaceholder: 'you@yourdomain.com',
+    passLabel: 'App password',
+    passHint: 'Zoho also wants an app-specific password, not your sign-in one.',
+    free: 'Fine for a small site.',
+    steps: [
+      'Sign in at zoho.com and open My Account, then Security.',
+      'Find App Passwords and press Generate New Password.',
+      'Name it Remote Work BD and copy what it gives you.',
+      'Paste it below with your full Zoho address.',
+    ],
+  },
+  outlook: {
+    name: 'Outlook or Hotmail',
+    note: 'A personal Microsoft address.',
+    host: 'smtp-mail.outlook.com', port: 587,
+    userLabel: 'Your Outlook address',
+    userPlaceholder: 'you@outlook.com',
+    passLabel: 'App password',
+    passHint: 'Microsoft needs two-step verification switched on first.',
+    free: 'Low limits. Fine for testing, not for announcements.',
+    steps: [
+      'Open account.microsoft.com/security and switch on two-step verification.',
+      'Open Advanced security options, then Create a new app password.',
+      'Copy it and paste it below.',
+    ],
+  },
+  other: {
+    name: 'Something else',
+    note: 'Any SMTP server - your host, your own mail server, Mailgun, Postmark.',
+    host: '', port: 587,
+    userLabel: 'SMTP username',
+    userPlaceholder: 'usually the full email address',
+    passLabel: 'SMTP password',
+    passHint: '',
+    free: '',
+    steps: [
+      'Find the SMTP details from whoever provides the mailbox.',
+      'You need a host, a port, a username and a password.',
+      'Use port 587 unless they tell you 465. Both are encrypted; anything else is refused.',
+    ],
+  },
+};
+
+app.get('/admin/mail/setup', need('admin'), (req, res) => {
+  const pick = MAIL_PROVIDERS[req.query.p] ? req.query.p : null;
+  const cfg = mail.config();
+
+  send(req, res, {
+    title: 'Set up email', active: 'mail',
+    body: `
+<a class="back" href="/admin/mail">&larr; Email</a>
+<h1>Set up email</h1>
+<p class="muted">Two things only you can know, and the rest is filled in for you.
+   Nothing is saved until it has actually connected and signed in.</p>
+
+${cfg.enabled ? `<div class="alert alert-ok">
+  <b>Email already works.</b> Sending through ${V.esc(cfg.host)} as ${V.esc(cfg.from)}.
+  Filling this in again will replace those settings.</div>` : ''}
+
+<div class="card pad">
+  <h2>1. Where will the mail be sent from?</h2>
+  <p class="muted">Whichever you already have. Gmail is the quickest if you are only
+     sending receipts and confirmations.</p>
+  <div class="prov-grid">
+    ${Object.entries(MAIL_PROVIDERS).map(([key, v]) => `
+      <a class="prov ${key === pick ? 'on' : ''}" href="/admin/mail/setup?p=${key}">
+        <b>${V.esc(v.name)}</b>
+        <span>${V.esc(v.note)}</span>
+        ${v.free ? `<em>${V.esc(v.free)}</em>` : ''}
+      </a>`).join('')}
+  </div>
+</div>
+
+${!pick ? '' : (() => {
+  const v = MAIL_PROVIDERS[pick];
+  return `
+<div class="card pad">
+  <h2>2. Get the password</h2>
+  <p class="muted">${pick === 'other'
+    ? 'From whoever runs the mailbox.'
+    : `${v.name} will not accept the password you sign in with. It needs a separate one, made just for this site, which you can revoke later without changing anything else.`}</p>
+  <ol class="steps">
+    ${v.steps.map(x => `<li>${V.esc(x)}</li>`).join('')}
+  </ol>
+</div>
+
+<form method="post" action="/admin/mail/setup" class="card pad">
+  ${csrfField(req)}
+  <input type="hidden" name="provider" value="${V.esc(pick)}">
+  <h2>3. Fill these in</h2>
+
+  ${V.field({ label: v.userLabel, name: 'user', required: true,
+    placeholder: v.userPlaceholder, value: getSetting('smtp_user', '') })}
+  ${V.field({ label: v.passLabel, name: 'pass', type: 'password', required: true,
+    hint: v.passHint, placeholder: 'paste it here' })}
+  ${V.field({ label: 'Name people will see it from', name: 'fromName',
+    value: getSetting('mail_from_name', 'Remote Work BD'),
+    hint: 'What appears as the sender in their inbox.' })}
+
+  ${pick === 'other' ? `
+    <div class="row-2">
+      ${V.field({ label: 'SMTP host', name: 'host', required: true,
+        value: getSetting('smtp_host', ''), placeholder: 'smtp.yourhost.com' })}
+      ${V.field({ label: 'Port', name: 'port', type: 'number', value: getSetting('smtp_port', '587'),
+        hint: '587 for STARTTLS, 465 for TLS.' })}
+    </div>
+    ${V.field({ label: 'Send from address', name: 'from', required: true,
+      value: getSetting('mail_from', ''), placeholder: 'noreply@yourdomain.com' })}`
+    : `<p class="fine">Host and port are set for you:
+        <b>${V.esc(v.host)}</b> on port <b>${v.port}</b>, encrypted with STARTTLS.
+        Mail will be sent from the address above.</p>`}
+
+  <div class="btn-row">
+    <button class="btn btn-lg" type="submit">Test it and save</button>
+  </div>
+  <p class="fine">This opens a connection and signs in before saving anything. If the
+     password is wrong you will be told now rather than finding out when somebody
+     does not get their confirmation link.</p>
+</form>`;
+})()}`,
+  });
+});
+
+app.post('/admin/mail/setup', need('admin'), async (req, res) => {
+  const b = req.body || {};
+  const v = MAIL_PROVIDERS[b.provider];
+  if (!v) return back(res, '/admin/mail/setup', 'Pick where the mail is sent from first.', 'fail');
+
+  const user = String(b.user || '').trim();
+  // Gmail shows the App Password in four groups of four. People paste it as
+  // shown, and Google does not want the spaces.
+  const pass = String(b.pass || '').replace(/\s+/g, '');
+  const host = (b.provider === 'other' ? String(b.host || '').trim() : v.host);
+  const port = Number(b.provider === 'other' ? b.port : v.port) || 587;
+  const from = (b.provider === 'other' ? String(b.from || '').trim() : user);
+  const fromName = String(b.fromName || '').trim() || 'Remote Work BD';
+
+  if (!user || !pass) return back(res, `/admin/mail/setup?p=${b.provider}`, 'Fill in both the address and the password.', 'fail');
+  if (!host) return back(res, `/admin/mail/setup?p=${b.provider}`, 'Give the SMTP host.', 'fail');
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(from)) {
+    return back(res, `/admin/mail/setup?p=${b.provider}`, 'That send-from address does not look like an email address.', 'fail');
+  }
+
+  const trial = { host, port, user, pass, secure: port === 465 };
+
+  // Prove it works before writing anything down.
+  try {
+    await smtp.check(trial);
+  } catch (err) {
+    return back(res, `/admin/mail/setup?p=${b.provider}`,
+      `Could not sign in: ${err.message}`, 'fail');
+  }
+
+  // Then prove a message actually leaves.
+  try {
+    const { html, text } = mail.render({
+      heading: 'Email is working',
+      intro: 'Sent from the setup page, through the settings you just entered.',
+      lines: [`Through ${host} on port ${port}, as ${from}.`,
+        'Confirmations, receipts and announcements will now reach people.'],
+    });
+    await smtp.send(trial, {
+      from, fromName, to: req.user.email,
+      subject: 'Remote Work BD - email is working', text, html,
+    });
+  } catch (err) {
+    return back(res, `/admin/mail/setup?p=${b.provider}`,
+      `Signed in, but the message was refused: ${err.message}`, 'fail');
+  }
+
+  setSetting('smtp_host', host);
+  setSetting('smtp_port', String(port));
+  setSetting('smtp_user', user);
+  setSetting('smtp_pass', pass);
+  setSetting('mail_from', from);
+  setSetting('mail_from_name', fromName);
+  setSetting('mail_enabled', '1');
+
+  // Anything queued while mail was off can go now.
+  mail.flush(50).catch(e => console.error('first flush:', e.message));
+
+  audit(req.user.id, 'mail_configured', null, { host, port, from, provider: b.provider }, req.ip);
+  back(res, '/admin/mail',
+    `Email is on. A test was sent to ${req.user.email} - check it arrived, and look in spam if it did not.`,
+    'ok');
+});
+
 app.post('/admin/mail/test', need('admin'), async (req, res) => {
   const to = String((req.body || {}).to || '').trim();
   if (!to) return back(res, '/admin/settings', 'Give an address to send to.', 'fail');
@@ -3752,13 +3997,16 @@ app.get('/admin/mail', need('admin'), (req, res) => {
   <div><h1>Email</h1>
     <p class="muted">Everything the site has tried to send. Mail is
       <b>${cfg.enabled ? 'on' : 'off'}</b>${cfg.enabled ? ` via ${V.esc(cfg.host)}` : ''}.</p></div>
-  <a class="btn" href="/admin/announce">Write an announcement</a>
+  <div class="btn-row">
+    <a class="btn btn-ghost" href="/admin/mail/setup">${cfg.enabled ? 'Change email settings' : 'Set up email'}</a>
+    <a class="btn" href="/admin/announce">Write an announcement</a>
+  </div>
 </div>
 
 ${cfg.enabled ? '' : `<div class="alert alert-warn">
   <b>Mail is switched off, so nothing is being sent.</b>
-  Messages are still being written down, and will go out when you turn it on in
-  <a href="/admin/settings">settings</a>. Nothing is lost in the meantime.</div>`}
+  Messages are still being written down, and nothing is lost in the meantime.
+  <a href="/admin/mail/setup">Set it up in three steps</a>.</div>`}
 
 <div class="stat-row">
   <a class="stat" href="/admin/mail"><b>${Object.values(counts).reduce((a, b) => a + b, 0)}</b><span>all</span></a>
