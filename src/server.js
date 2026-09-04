@@ -23,6 +23,7 @@ const eps = require('./lib/payments/eps');
 const cryptomus = require('./lib/payments/cryptomus');
 const referrals = require('./lib/referrals');
 const mail = require('./lib/mail');
+const stats = require('./lib/stats');
 const smtp = require('./lib/smtp');
 const passwords = require('./lib/passwords');
 const quality = require('./lib/quality');
@@ -1153,12 +1154,19 @@ function authPage(req, res, mode) {
     </a>
     <div class="or"><span>or ${signup ? 'sign up' : 'sign in'} with your details</span></div>` : '';
 
-  const points = signup ? [
+  const hiring = signup && want === 'merchant';
+
+  const points = signup ? (hiring ? [
+    'Post a batch of tasks and fund it up front',
+    'Only workers on this site can take your jobs',
+    'Approve or reject each submission yourself',
+    'Whatever is not paid out comes back to you',
+  ] : [
     'Get access to every task on the board',
     'Withdraw what you earn, from ' + V.money(numSetting('min_withdrawal')) + ' upwards',
     'Join with a referral code if you have one',
     'One account per person - that is what keeps the work fair',
-  ] : [
+  ]) : [
     'Pick up where you left off',
     'See what you have earned and what is still in review',
     'Manage your account and payout details',
@@ -1171,18 +1179,24 @@ function authPage(req, res, mode) {
     body: `
 <div class="auth-split">
   <div class="auth-tell">
-    <span class="eyebrow">${signup ? 'Create your account' : 'Welcome back'}</span>
-    <h1>${signup ? 'Join <b>Remote Work BD</b> today' : 'Sign in to <b>Remote Work BD</b>'}</h1>
+    <span class="eyebrow">${signup ? (hiring ? 'Create a buyer account' : 'Create your account') : 'Welcome back'}</span>
+    <h1>${signup
+      ? (hiring ? 'Hire on <b>Remote Work BD</b>' : 'Join <b>Remote Work BD</b> today')
+      : 'Sign in to <b>Remote Work BD</b>'}</h1>
     <p>${signup
-      ? 'Create your account to take on tasks, post your own work, and get paid for what you finish. Every job here is funded before it goes live.'
+      ? (hiring
+        ? 'A buyer account is for posting work, not doing it. You fund a job up front, workers complete it, and you approve what you are happy with.'
+        : 'Create your account to take on tasks and get paid for what you finish. Every job here is funded before it goes live, so the money for your work is already set aside.')
       : 'Sign in to reach your dashboard, carry on with your tasks, manage your balance and keep using Remote Work BD.'}</p>
     <ul class="auth-points">
       ${points.map(x => `<li>${V.esc(x)}</li>`).join('')}
     </ul>
     <div class="auth-note">
-      <b>${signup ? 'Simple and secure registration' : 'Secure account access'}</b>
+      <b>${signup ? (hiring ? 'What a buyer account can do' : 'Simple and secure registration') : 'Secure account access'}</b>
       <p>${signup
-        ? 'Please use real details. Your email has to be confirmed before you can take work or withdraw, and one person may hold one account.'
+        ? (hiring
+          ? 'A buyer posts and reviews work. It cannot take tasks for money - that is a worker account, and the two are kept apart so nobody can quietly do their own jobs. You can ask an admin to switch later.'
+          : 'Please use real details. Your email has to be confirmed before you can take work or withdraw, and one person may hold one account.')
         : 'Use the email or username you registered with. If you signed up with Google, use the Google button instead.'}</p>
     </div>
   </div>
@@ -1194,11 +1208,19 @@ function authPage(req, res, mode) {
         ? 'Fill in the fields below to create your new account.'
         : 'Enter your details below to reach your account.'}</p>
 
+      ${signup ? `
+      <div class="role-pick" role="group" aria-label="What kind of account">
+        <a class="${hiring ? '' : 'on'}" href="/signup${next ? '?next=' + encodeURIComponent(next) : ''}">
+          <b>I want to work</b><span>Do tasks, get paid</span></a>
+        <a class="${hiring ? 'on' : ''}" href="/signup?want=merchant${next ? '&next=' + encodeURIComponent(next) : ''}">
+          <b>I want to hire</b><span>Post tasks, fund them</span></a>
+      </div>` : ''}
+
       ${googleBtn}
 
       <form method="post" action="${signup ? '/signup' : '/login'}" class="auth-fields">
         ${nextField}
-        ${want ? `<input type="hidden" name="want" value="merchant">` : ''}
+        <input type="hidden" name="want" value="${hiring || want === 'merchant' ? 'merchant' : 'worker'}">
         ${signup ? `
           <label for="a-name">Name</label>
           <input id="a-name" name="name" required maxlength="80" autocomplete="name"
@@ -1272,7 +1294,9 @@ app.get(['/signup', '/register'], (req, res) => authPage(req, res, 'signup'));
 /* Re-show the form with what they typed still in it. Losing eight fields
    because one was wrong is how people give up on signing up. */
 function backToForm(res, path, body, msg) {
-  const keep = ['name', 'email', 'username', 'ref', 'country'];
+  // `want` is in the list because losing it drops a buyer back onto the worker
+  // form, and they would not notice until an admin asked why they cannot post.
+  const keep = ['name', 'email', 'username', 'ref', 'country', 'want'];
   const q = keep
     .filter(k => body[k])
     .map(k => `${k}=${encodeURIComponent(String(body[k]).slice(0, 120))}`)
@@ -2603,39 +2627,336 @@ app.post('/report', need(), (req, res) => {
 // ======================================================================
 // ADMIN
 // ======================================================================
+/* ====================================================================
+   The admin dashboard.
+
+   Built around one question: what needs me right now? Everything that can be
+   waiting for a person is at the top, and everything else is context under it.
+   A dashboard that opens with a wall of totals trains people to skim past the
+   one number that mattered.
+
+   Nothing here is stored. Every figure is counted from the rows it describes,
+   so the dashboard cannot drift away from the truth it is reporting.
+   ==================================================================== */
+
+// A bar chart in plain SVG. No library: the CSP forbids one, and this is
+// twenty lines against a hundred kilobytes.
+function chart(rows, key, { colour = 'var(--green)', money: asMoney = false, height = 60 } = {}) {
+  const values = rows.map(r => r[key]);
+  const peak = Math.max(1, ...values);
+  const w = 100 / rows.length;
+
+  return `<div class="chart">
+    <svg viewBox="0 0 100 ${height}" preserveAspectRatio="none" role="img"
+         aria-label="${rows.length} day trend">
+      ${rows.map((r, i) => {
+        const h = (r[key] / peak) * (height - 4);
+        return `<rect x="${(i * w + w * 0.16).toFixed(2)}" y="${(height - h).toFixed(2)}"
+          width="${(w * 0.68).toFixed(2)}" height="${Math.max(h, r[key] ? 1 : 0).toFixed(2)}"
+          fill="${colour}" rx="0.6"><title>${V.esc(r.label)}: ${asMoney ? V.money(r[key]) : r[key]}</title></rect>`;
+      }).join('')}
+    </svg>
+    <div class="chart-foot"><span>${V.esc(rows[0].label)}</span><span>${V.esc(rows[rows.length - 1].label)}</span></div>
+  </div>`;
+}
+
+function kpi(value, label, { href, tone = '', note = '' } = {}) {
+  const inner = `<b>${value}</b><span>${V.esc(label)}</span>${note ? `<em>${V.esc(note)}</em>` : ''}`;
+  return href
+    ? `<a class="kpi ${tone}" href="${href}">${inner}</a>`
+    : `<div class="kpi ${tone}">${inner}</div>`;
+}
+
 app.get('/admin', need('admin'), (req, res) => {
-  const s = {
-    users: db.prepare('SELECT COUNT(*) AS n FROM users').get().n,
-    suspended: db.prepare("SELECT COUNT(*) AS n FROM users WHERE status = 'suspended'").get().n,
-    jobs: db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE status = 'active'").get().n,
-    reports: db.prepare("SELECT COUNT(*) AS n FROM reports WHERE status = 'open'").get().n,
-    deposits: db.prepare("SELECT COUNT(*) AS n FROM deposits WHERE status = 'pending'").get().n,
-    withdrawals: db.prepare("SELECT COUNT(*) AS n FROM withdrawals WHERE status = 'pending'").get().n,
-    held: db.prepare('SELECT COALESCE(SUM(held - released - refunded), 0) AS n FROM escrow').get().n,
-    fees: db.prepare("SELECT COALESCE(SUM(amount), 0) AS n FROM ledger WHERE kind = 'task_earning'").get().n,
-  };
-  const recent = db.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT 20').all();
+  const days = [7, 14, 30, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 14;
+  const p = stats.people();
+  const m = stats.money();
+  const w = stats.work();
+  const q = stats.queue();
+  const trend = stats.series(days);
+  const risky = stats.buyers(50).filter(b => b.behaviour.concerns.length);
+
+  // Everything that is actually waiting for a person, in one list.
+  const todo = [
+    { n: q.reports, label: 'reports to judge', href: '/admin/reports' },
+    { n: m.pendingWithdrawals, label: 'withdrawals to pay', href: '/admin/money' },
+    { n: m.pendingDeposits, label: 'deposits to check', href: '/admin/money' },
+    { n: q.roleRequests, label: 'role changes to approve', href: '/admin/roles' },
+    { n: q.tickets, label: 'support tickets open', href: '/admin/support' },
+    { n: q.mailFailed, label: 'emails failed to send', href: '/admin/mail?status=failed' },
+    { n: risky.length, label: 'buyers worth a look', href: '/admin/buyers' },
+  ].filter(x => x.n > 0);
+
+  const recent = db.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT 12').all();
 
   send(req, res, {
-    title: 'Admin', active: 'admin', wide: true,
+    title: 'Dashboard', active: 'admin', wide: true,
     body: `
-<h1>Overview</h1>
-<div class="stat-row">
-  <div class="stat"><b>${s.users}</b><span>users</span></div>
-  <div class="stat ${s.suspended ? 'bad' : ''}"><b>${s.suspended}</b><span>suspended</span></div>
-  <div class="stat"><b>${s.jobs}</b><span>active jobs</span></div>
-  <div class="stat ${s.reports ? 'warn' : ''}"><b>${s.reports}</b><span>open reports</span></div>
-  <div class="stat ${s.deposits ? 'warn' : ''}"><b>${s.deposits}</b><span>deposits</span></div>
-  <div class="stat ${s.withdrawals ? 'warn' : ''}"><b>${s.withdrawals}</b><span>withdrawals</span></div>
-  <div class="stat"><b>${V.money(s.held)}</b><span>in escrow</span></div>
+<div class="page-head">
+  <div><h1>Dashboard</h1>
+    <p class="muted">Everything is counted live from the records themselves, so nothing here
+       can drift away from what actually happened.</p></div>
+  <div class="range">
+    ${[7, 14, 30, 90].map(d => `<a class="${d === days ? 'on' : ''}" href="/admin?days=${d}">${d}d</a>`).join('')}
+  </div>
 </div>
-<div class="card"><div class="card-head"><h2>Recent activity</h2></div>
-  <div class="table-wrap"><table><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Subject</th><th>Detail</th></tr></thead>
-  <tbody>${recent.map(a => `<tr><td class="dim">${V.ago(a.created_at)}</td>
-    <td class="mono">${a.actor_id || '-'}</td><td>${V.esc(a.action)}</td>
-    <td class="mono">${V.esc(a.subject || '')}</td>
-    <td class="dim clip">${V.esc(String(a.detail || '').slice(0, 90))}</td></tr>`).join('')}
-  </tbody></table></div></div>`,
+
+${m.balanced ? '' : `<div class="alert alert-stop">
+  <b>The books do not balance.</b>
+  Deposits and adjustments come to ${V.money(m.inflow)}, but balances plus escrow come to
+  ${V.money(m.balances + m.escrow)} &mdash; a difference of ${V.money(Math.abs(m.drift))}.
+  Money has been created or destroyed somewhere. Stop and find it before anything else.</div>`}
+
+${w.overdue ? `<div class="alert alert-warn">
+  <b>${w.overdue} submission(s) are past their review deadline and still unpaid.</b>
+  The sweep runs every minute, so a number here that does not fall means it is not running.</div>` : ''}
+
+${todo.length ? `
+<div class="todo">
+  <b>Waiting for you</b>
+  <div class="todo-row">
+    ${todo.map(x => `<a href="${x.href}"><span class="n">${x.n}</span> ${V.esc(x.label)}</a>`).join('')}
+  </div>
+</div>` : `<div class="todo clear"><b>Nothing is waiting for you.</b>
+  <span>No open reports, no unpaid withdrawals, no failed email.</span></div>`}
+
+<h2 class="sec">Money</h2>
+<div class="kpi-row">
+  ${kpi(V.money(m.balances), 'held in user balances', { note: 'what people could withdraw today' })}
+  ${kpi(V.money(m.escrow), 'in escrow', { note: 'funded jobs not yet paid out', href: '/admin/buyers' })}
+  ${kpi(V.money(m.fees), 'our commission', { tone: 'ok', note: 'earned across all approved work' })}
+  ${kpi(V.money(m.withdrawn), 'paid out', { note: 'withdrawals settled' })}
+  ${kpi(V.money(m.pendingWithdrawalValue), 'withdrawals waiting',
+    { tone: m.pendingWithdrawals ? 'warn' : '', href: '/admin/money',
+      note: `${m.pendingWithdrawals} request${m.pendingWithdrawals === 1 ? '' : 's'}` })}
+</div>
+
+<div class="two">
+  <div class="card pad">
+    <div class="card-head"><h3>Deposits in</h3><span class="dim">${days} days</span></div>
+    ${chart(trend, 'deposits', { colour: 'var(--band)', money: true })}
+    <dl class="kv tight">
+      <dt>Deposited all time</dt><dd>${V.money(m.deposited)}</dd>
+      <dt>Added by an admin</dt><dd>${V.money(m.adminAdded)}</dd>
+      ${m.adminTaken ? `<dt>Taken by an admin</dt><dd>${V.money(m.adminTaken)}</dd>` : ''}
+    </dl>
+  </div>
+  <div class="card pad">
+    <div class="card-head"><h3>Paid to workers</h3><span class="dim">${days} days</span></div>
+    ${chart(trend, 'paid', { colour: 'var(--green)', money: true })}
+    <dl class="kv tight">
+      <dt>Earned by workers all time</dt><dd>${V.money(m.earned)}</dd>
+      <dt>Referral rewards paid</dt><dd>${V.money(m.referralPaid)}</dd>
+      <dt class="fine-dt">Rewards come out of our commission, never out of anybody's earnings</dt><dd></dd>
+    </dl>
+  </div>
+</div>
+
+<h2 class="sec">Work</h2>
+<div class="kpi-row">
+  ${kpi(w.waiting, 'waiting on a buyer', { tone: w.waiting ? 'warn' : '', note: 'submitted, not yet judged' })}
+  ${kpi(w.open, 'in progress', { note: 'started, not yet sent' })}
+  ${kpi(w.approved, 'approved', { tone: 'ok' })}
+  ${kpi(w.rejected, 'rejected', { tone: w.rejected ? 'bad' : '' })}
+  ${kpi(w.approvalRate === null ? '--' : w.approvalRate + '%', 'approval rate',
+    { note: 'across every decision made' })}
+  ${kpi(w.autoApproved, 'auto-approved', { note: 'buyer missed the deadline' })}
+</div>
+
+<div class="two">
+  <div class="card pad">
+    <div class="card-head"><h3>Tasks approved</h3><span class="dim">${days} days</span></div>
+    ${chart(trend, 'tasks', { colour: 'var(--green)' })}
+  </div>
+  <div class="card pad">
+    <div class="card-head"><h3>New accounts</h3><span class="dim">${days} days</span></div>
+    ${chart(trend, 'signups', { colour: 'var(--violet)' })}
+  </div>
+</div>
+
+<h2 class="sec">People</h2>
+<div class="kpi-row">
+  ${kpi(p.workers, 'workers', { href: '/admin/users?role=worker' })}
+  ${kpi(p.merchants, 'buyers', { href: '/admin/buyers' })}
+  ${kpi(p.active7, 'workers active', { note: 'took a task in the last 7 days' })}
+  ${kpi(p.buying7, 'buyers active', { note: 'posted a job in the last 7 days' })}
+  ${kpi(p.new7, 'joined this week', { note: `${p.newToday} in the last day` })}
+  ${kpi(p.suspended, 'suspended', { tone: p.suspended ? 'bad' : '', href: '/admin/users?status=suspended' })}
+  ${kpi(p.unverified, 'unconfirmed email', { tone: p.unverified ? 'warn' : '',
+    note: 'cannot take work or withdraw' })}
+</div>
+
+<div class="two">
+  <div class="card">
+    <div class="card-head"><h3>Jobs</h3><a class="link" href="/admin/jobs">All jobs</a></div>
+    <div class="pad">
+      <dl class="kv tight">
+        <dt>Live now</dt><dd>${w.jobsActive}</dd>
+        <dt>Slots still open</dt><dd>${w.slotsOpen}</dd>
+        <dt>Completed</dt><dd>${w.jobsCompleted}</dd>
+        <dt>Cancelled</dt><dd>${w.jobsCancelled}</dd>
+        <dt>Flagged and waiting</dt><dd>${w.flagged}</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h3>Buyers worth a look</h3><a class="link" href="/admin/buyers">All buyers</a></div>
+    ${risky.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>Buyer</th><th>Why</th></tr></thead>
+      <tbody>${risky.slice(0, 5).map(b => `<tr>
+        <td><a class="link" href="/admin/users/${b.id}">${V.esc(b.name)}</a></td>
+        <td class="dim">${V.esc(b.behaviour.concerns[0])}</td>
+      </tr>`).join('')}</tbody></table></div>`
+      : `<div class="pad muted">No buyer is rejecting an unusual amount of work,
+         letting deadlines lapse, or carrying upheld reports.</div>`}
+  </div>
+</div>
+
+<div class="two">
+  <div class="card">
+    <div class="card-head"><h3>Busiest workers</h3></div>
+    ${(() => { const t = stats.topWorkers(6); return t.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>Worker</th><th class="right">Approved</th><th class="right">Earned</th></tr></thead>
+      <tbody>${t.map(x => `<tr>
+        <td><a class="link" href="/admin/users/${x.id}">${V.esc(x.name)}</a></td>
+        <td class="num right">${x.approved}</td>
+        <td class="num right">${V.money(x.earned)}</td></tr>`).join('')}</tbody>
+      </table></div>` : '<div class="pad muted">Nobody has had work approved yet.</div>'; })()}
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>Biggest buyers</h3></div>
+    ${(() => { const t = stats.topBuyers(6); return t.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>Buyer</th><th class="right">Jobs</th><th class="right">Funded</th></tr></thead>
+      <tbody>${t.map(x => `<tr>
+        <td><a class="link" href="/admin/users/${x.id}">${V.esc(x.name)}</a></td>
+        <td class="num right">${x.jobs}</td>
+        <td class="num right">${V.money(x.funded)}</td></tr>`).join('')}</tbody>
+      </table></div>` : '<div class="pad muted">Nobody has funded a job yet.</div>'; })()}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h3>Recent activity</h3><span class="dim">every action leaves a record</span></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>When</th><th>Who</th><th>Did</th><th>To</th><th>Detail</th></tr></thead>
+    <tbody>${recent.map(a => `<tr>
+      <td class="dim">${V.ago(a.created_at)}</td>
+      <td class="mono">${a.actor_id || 'system'}</td>
+      <td>${V.esc(a.action)}</td>
+      <td class="mono">${V.esc(a.subject || '')}</td>
+      <td class="dim clip">${V.esc(String(a.detail || '').slice(0, 80))}</td></tr>`).join('')}
+    </tbody></table></div>
+</div>`,
+  });
+});
+
+/* Every buyer, and how they treat the people working for them.
+
+   Its own page because judging a buyer needs different numbers from judging a
+   worker. A worker is judged on the quality of what they send; a buyer is
+   judged on whether they pay for what they receive.
+*/
+app.get('/admin/buyers', need('admin'), (req, res) => {
+  const all = stats.buyers(200);
+  const flagged = all.filter(b => b.behaviour.concerns.length);
+
+  send(req, res, {
+    title: 'Buyers', active: 'buyers', wide: true,
+    body: `
+<div class="page-head">
+  <div><h1>Buyers</h1>
+    <p class="muted">Anyone who can post work. Sorted so that the accounts worth
+       questioning come first.</p></div>
+  <a class="btn btn-ghost" href="/admin/users?role=worker">Workers instead</a>
+</div>
+
+${flagged.length ? `<div class="alert alert-warn">
+  <b>${flagged.length} buyer${flagged.length === 1 ? '' : 's'} worth a closer look.</b>
+  None of these is proof of anything on its own &mdash; a high rejection rate can just be
+  bad instructions. Read the detail, and look at the work before acting.</div>` : ''}
+
+<div class="card">
+  ${all.length ? `<div class="table-wrap"><table>
+  <thead><tr>
+    <th>Buyer</th><th class="right">Balance</th><th class="right">In escrow</th>
+    <th class="right">Paid out</th><th class="right">Jobs</th>
+    <th class="right">Approved</th><th class="right">Rejected</th>
+    <th class="right">Lapsed</th><th>Concerns</th><th></th>
+  </tr></thead>
+  <tbody>${all.map(b => {
+    const x = b.behaviour;
+    return `<tr class="${x.concerns.length ? 'row-warn' : ''}">
+      <td><a class="link" href="/admin/users/${b.id}">${V.esc(b.name)}</a>
+        <div class="dim">${V.esc(b.email)}</div></td>
+      <td class="num right">${V.money(b.balance)}</td>
+      <td class="num right">${V.money(x.held)}</td>
+      <td class="num right">${V.money(x.paidOut)}</td>
+      <td class="num right">${x.jobs}<div class="dim">${x.jobsActive} live</div></td>
+      <td class="num right">${x.approved}</td>
+      <td class="num right ${x.rejectRate !== null && x.rejectRate >= 40 ? 'bad' : ''}">
+        ${x.rejected}${x.rejectRate !== null ? `<div class="dim">${x.rejectRate}%</div>` : ''}</td>
+      <td class="num right ${x.lapsed ? 'warn-t' : ''}">${x.lapsed}</td>
+      <td class="dim clip">${x.concerns.length ? V.esc(x.concerns[0]) : '&mdash;'}</td>
+      <td class="right"><a class="link" href="/admin/users/${b.id}">Open</a></td>
+    </tr>`;
+  }).join('')}</tbody></table></div>`
+    : '<div class="pad muted">Nobody has a buyer account yet.</div>'}
+</div>
+
+<div class="card pad">
+  <h3>What these columns mean</h3>
+  <dl class="kv">
+    <dt>In escrow</dt><dd>Money they have funded that has not been paid out yet. It is
+      theirs until work is approved, and comes back to them if a job is cancelled.</dd>
+    <dt>Rejected</dt><dd>A high rate over a lot of decisions is the shape of a buyer
+      taking free work &mdash; but it is also the shape of a buyer whose instructions are
+      unclear. Look at the actual submissions before deciding.</dd>
+    <dt>Lapsed</dt><dd>Submissions they never reviewed, which the site approved and paid
+      on their behalf when the deadline passed. Workers are never left waiting, but a
+      buyer who does this constantly is not running their jobs.</dd>
+  </dl>
+</div>`,
+  });
+});
+
+app.get('/admin/jobs', need('admin'), (req, res) => {
+  const status = ['active', 'completed', 'cancelled'].includes(req.query.status) ? req.query.status : null;
+  const rows = db.prepare(`
+    SELECT j.*, u.name AS buyer,
+      (SELECT COUNT(*) FROM submissions WHERE job_id = j.id AND status = 'submitted') AS waiting,
+      (SELECT COUNT(*) FROM submissions WHERE job_id = j.id AND status = 'approved') AS approved
+    FROM jobs j JOIN users u ON u.id = j.merchant_id
+    ${status ? 'WHERE j.status = ?' : ''}
+    ORDER BY j.id DESC LIMIT 200
+  `).all(...(status ? [status] : []));
+
+  send(req, res, {
+    title: 'Jobs', active: 'jobs', wide: true,
+    body: `
+<div class="page-head"><div><h1>Jobs</h1>
+  <p class="muted">Every job posted, and what has happened to it.</p></div>
+  <div class="range">
+    <a class="${!status ? 'on' : ''}" href="/admin/jobs">All</a>
+    <a class="${status === 'active' ? 'on' : ''}" href="/admin/jobs?status=active">Live</a>
+    <a class="${status === 'completed' ? 'on' : ''}" href="/admin/jobs?status=completed">Done</a>
+    <a class="${status === 'cancelled' ? 'on' : ''}" href="/admin/jobs?status=cancelled">Cancelled</a>
+  </div>
+</div>
+
+<div class="card">${rows.length ? `<div class="table-wrap"><table>
+  <thead><tr><th>Job</th><th>Buyer</th><th class="right">Pays</th><th class="right">Filled</th>
+    <th class="right">Waiting</th><th class="right">In escrow</th><th>State</th></tr></thead>
+  <tbody>${rows.map(j => `<tr>
+    <td><a class="link" href="/jobs/${j.id}">${V.esc(j.title)}</a></td>
+    <td><a class="link" href="/admin/users/${j.merchant_id}">${V.esc(j.buyer)}</a></td>
+    <td class="num right">${V.money(j.rate)}</td>
+    <td class="num right">${j.slots_filled} / ${j.slots}</td>
+    <td class="num right ${j.waiting ? 'warn-t' : ''}">${j.waiting}</td>
+    <td class="num right">${V.money(money.escrowRemaining(j.id))}</td>
+    <td>${V.statusPill(j.status)}</td>
+  </tr>`).join('')}</tbody></table></div>`
+    : '<div class="pad muted">No jobs yet.</div>'}</div>`,
   });
 });
 
@@ -2791,39 +3112,106 @@ app.post('/admin/withdrawals/:id/reject', need('admin'), (req, res) => {
   } catch (err) { fail(res, err.message); }
 });
 
+/* The people list, split by what kind of account they hold.
+
+   Workers and buyers are judged on different things - a worker on the quality
+   of what they send, a buyer on whether they pay for what they receive - so
+   mixing them in one table means half the columns are meaningless for half the
+   rows. The tabs are the fix, and the counts sit on them so an admin can see
+   the shape of the site without clicking.
+*/
 app.get('/admin/users', need('admin'), (req, res) => {
   const q = String(req.query.q || '').trim();
-  const sql = `
+  const role = ['worker', 'merchant', 'admin'].includes(req.query.role) ? req.query.role : null;
+  const status = ['active', 'suspended', 'banned'].includes(req.query.status) ? req.query.status : null;
+
+  const where = [];
+  const args = [];
+  if (role) { where.push('u.role = ?'); args.push(role); }
+  if (status) { where.push('u.status = ?'); args.push(status); }
+  if (q) {
+    where.push('(u.name LIKE ? OR u.email LIKE ? OR u.username LIKE ?)');
+    args.push('%' + q + '%', '%' + q + '%', '%' + q + '%');
+  }
+
+  const rows = db.prepare(`
     SELECT u.*,
       (SELECT COALESCE(SUM(amount), 0) FROM ledger WHERE user_id = u.id) AS balance,
       (SELECT COUNT(*) FROM submissions WHERE worker_id = u.id AND status = 'approved') AS approved,
-      (SELECT COUNT(*) FROM submissions WHERE worker_id = u.id AND status = 'rejected') AS rejected
+      (SELECT COUNT(*) FROM submissions WHERE worker_id = u.id AND status = 'rejected') AS rejected,
+      (SELECT COUNT(*) FROM submissions WHERE worker_id = u.id AND status IN ('started','submitted')) AS busy,
+      (SELECT COUNT(*) FROM jobs WHERE merchant_id = u.id) AS jobs,
+      (SELECT COUNT(*) FROM jobs WHERE merchant_id = u.id AND status = 'active') AS jobsLive,
+      (SELECT COUNT(*) FROM submissions WHERE merchant_id = u.id AND status = 'submitted') AS toReview
     FROM users u
-    ${q ? 'WHERE u.name LIKE ? OR u.email LIKE ?' : ''}
-    ORDER BY u.id DESC LIMIT 200`;
-  const rows = db.prepare(sql).all(...(q ? ['%' + q + '%', '%' + q + '%'] : []));
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY u.id DESC LIMIT 300
+  `).all(...args);
+
+  const counts = db.prepare(
+    'SELECT role, COUNT(*) AS n FROM users GROUP BY role'
+  ).all().reduce((a, r) => (a[r.role] = r.n, a), {});
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+
+  const keep = (extra) => {
+    const parts = [];
+    if (q) parts.push('q=' + encodeURIComponent(q));
+    if (extra) parts.push(extra);
+    return parts.length ? '?' + parts.join('&') : '';
+  };
+
+  const buyers = role === 'merchant';
 
   send(req, res, {
-    title: 'Users', active: 'users', wide: true,
-    body: `<div class="page-head"><h1>Users</h1>
-      <form class="filters" method="get"><input type="search" name="q" value="${V.esc(q)}" placeholder="Name or email">
-      <button class="btn btn-ghost" type="submit">Search</button></form></div>
+    title: 'People', active: 'users', wide: true,
+    body: `
+<div class="page-head">
+  <div><h1>${buyers ? 'Buyers' : role === 'worker' ? 'Workers' : role === 'admin' ? 'Admins' : 'People'}</h1>
+    <p class="muted">${buyers
+      ? 'Accounts that post and fund work. For how they treat workers, use the buyer view.'
+      : role === 'worker'
+        ? 'Accounts that do tasks and get paid.'
+        : 'Everyone with an account, whatever they use it for.'}</p></div>
+  <form class="filters" method="get">
+    ${role ? `<input type="hidden" name="role" value="${V.esc(role)}">` : ''}
+    <input type="search" name="q" value="${V.esc(q)}" placeholder="Name, email or username">
+    <button class="btn btn-ghost" type="submit">Search</button>
+  </form>
+</div>
+
+<div class="range wide-range">
+  <a class="${!role ? 'on' : ''}" href="/admin/users${keep()}">Everyone <i>${total}</i></a>
+  <a class="${role === 'worker' ? 'on' : ''}" href="/admin/users${keep('role=worker')}">Workers <i>${counts.worker || 0}</i></a>
+  <a class="${role === 'merchant' ? 'on' : ''}" href="/admin/users${keep('role=merchant')}">Buyers <i>${counts.merchant || 0}</i></a>
+  <a class="${role === 'admin' ? 'on' : ''}" href="/admin/users${keep('role=admin')}">Admins <i>${counts.admin || 0}</i></a>
+  ${buyers ? '<a class="alt" href="/admin/buyers">How they treat workers &rarr;</a>' : ''}
+</div>
+
 <div class="card"><div class="table-wrap"><table>
-  <thead><tr><th>User</th><th>Role</th><th class="right">Balance</th><th>Approved</th><th>Rejected</th><th>Strikes</th><th>State</th><th></th></tr></thead>
-  <tbody>${rows.map(u => `<tr>
-    <td><a class="link" href="/admin/users/${u.id}">${V.esc(u.name)}</a><div class="dim">${V.esc(u.email)}</div></td>
-    <td>${V.esc(u.role)}</td>
+  <thead><tr>
+    <th>Person</th><th>Type</th><th class="right">Balance</th>
+    ${buyers
+      ? '<th class="right">Jobs</th><th class="right">To review</th>'
+      : '<th class="right">Approved</th><th class="right">Rejected</th><th class="right">Busy</th>'}
+    <th>Email</th><th>State</th><th></th>
+  </tr></thead>
+  <tbody>${rows.length ? rows.map(u => `<tr>
+    <td><a class="link" href="/admin/users/${u.id}">${V.esc(u.name)}</a>
+      <div class="dim">${V.esc(u.email)}${u.username ? ` &middot; ${V.esc(u.username)}` : ''}</div></td>
+    <td><span class="pill ${u.role === 'merchant' ? 'lvl' : ''}">${u.role === 'merchant' ? 'buyer' : V.esc(u.role)}</span></td>
     <td class="num right">${V.money(u.balance)}</td>
-    <td class="num">${u.approved}</td><td class="num ${u.rejected ? 'bad' : ''}">${u.rejected}</td>
-    <td class="num">${u.strikes}</td>
+    ${buyers
+      ? `<td class="num right">${u.jobs}<div class="dim">${u.jobsLive} live</div></td>
+         <td class="num right ${u.toReview ? 'warn-t' : ''}">${u.toReview}</td>`
+      : `<td class="num right">${u.approved}</td>
+         <td class="num right ${u.rejected ? 'bad' : ''}">${u.rejected}</td>
+         <td class="num right">${u.busy}</td>`}
+    <td>${u.email_verified
+      ? '<span class="pill s-approved">confirmed</span>'
+      : '<span class="pill s-submitted">unconfirmed</span>'}</td>
     <td>${V.statusPill(u.status)}${u.suspend_reason ? `<div class="dim clip">${V.esc(u.suspend_reason)}</div>` : ''}</td>
-    <td class="right">${u.role === 'admin' ? '' : (u.status === 'active' ? `
-      <form method="post" action="/admin/users/${u.id}/suspend" class="inline">${csrfField(req)}
-        <input type="text" name="reason" placeholder="Reason" required maxlength="120">
-        <button class="btn btn-ghost btn-sm" type="submit">Suspend</button></form>` : `
-      <form method="post" action="/admin/users/${u.id}/restore" class="inline">${csrfField(req)}
-        <button class="btn btn-sm" type="submit">Restore</button></form>`)}</td>
-  </tr>`).join('')}</tbody>
+    <td class="right"><a class="link" href="/admin/users/${u.id}">Open</a></td>
+  </tr>`).join('') : '<tr><td colspan="8" class="pad muted">Nobody matches that.</td></tr>'}</tbody>
 </table></div></div>`,
   });
 });
@@ -2840,7 +3228,7 @@ app.get('/admin/users/:id', need('admin'), (req, res) => {
   const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   if (!u) return fail(res, 'No such user.');
 
-  const stats = db.prepare(`
+  const asWorker = db.prepare(`
     SELECT
       COUNT(*) AS taken,
       SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved,
@@ -2884,8 +3272,8 @@ app.get('/admin/users/:id', need('admin'), (req, res) => {
     'SELECT ip, user_agent, created_at FROM logins WHERE user_id = ? ORDER BY id DESC LIMIT 10'
   ).all(id);
 
-  const rate = stats.taken
-    ? Math.round((stats.approved / Math.max(1, stats.approved + stats.rejected)) * 100)
+  const rate = asWorker.taken
+    ? Math.round((asWorker.approved / Math.max(1, asWorker.approved + asWorker.rejected)) * 100)
     : null;
 
   send(req, res, {
@@ -2917,11 +3305,11 @@ ${u.suspend_reason ? `<div class="alert alert-stop"><b>Suspended:</b> ${V.esc(u.
   <div class="stat ok"><b>${V.money(earned)}</b><span>earned from tasks</span></div>
   <div class="stat"><b>${V.money(deposited)}</b><span>deposited</span></div>
   <div class="stat"><b>${V.money(withdrawn)}</b><span>withdrawn</span></div>
-  <div class="stat"><b>${stats.approved || 0}</b><span>tasks approved</span></div>
-  <div class="stat ${stats.rejected ? 'bad' : ''}"><b>${stats.rejected || 0}</b><span>rejected</span></div>
+  <div class="stat"><b>${asWorker.approved || 0}</b><span>tasks approved</span></div>
+  <div class="stat ${asWorker.rejected ? 'bad' : ''}"><b>${asWorker.rejected || 0}</b><span>rejected</span></div>
   ${rate !== null ? `<div class="stat ${rate < 70 ? 'bad' : ''}"><b>${rate}%</b><span>approval rate</span></div>` : ''}
-  <div class="stat ${stats.flagged ? 'warn' : ''}"><b>${stats.flagged || 0}</b><span>flagged</span></div>
-  <div class="stat"><b>${stats.avg_seconds ? V.mmss(Math.round(stats.avg_seconds)) : '--'}</b><span>average time</span></div>
+  <div class="stat ${asWorker.flagged ? 'warn' : ''}"><b>${asWorker.flagged || 0}</b><span>flagged</span></div>
+  <div class="stat"><b>${asWorker.avg_seconds ? V.mmss(Math.round(asWorker.avg_seconds)) : '--'}</b><span>average time</span></div>
   <div class="stat"><b>${u.strikes}</b><span>strikes</span></div>
 </div>
 
@@ -2931,6 +3319,61 @@ ${asMerchant.jobs ? `<div class="stat-row">
 </div>` : ''}
 
 <div class="card">
+  ${u.role !== 'merchant' && !asMerchant.jobs ? '' : (() => {
+    const b = stats.buyerBehaviour(id);
+    return `
+<div class="card">
+  <div class="card-head">
+    <h2>As a buyer</h2>
+    <a class="link" href="/admin/buyers">Compare with other buyers</a>
+  </div>
+
+  ${b.concerns.length ? `<div class="pad"><div class="alert alert-warn">
+    <b>Worth a closer look:</b>
+    <ul class="tight-list">${b.concerns.map(c => `<li>${V.esc(c)}</li>`).join('')}</ul>
+    <span class="fine">None of this is proof on its own. A high rejection rate can simply mean
+      unclear instructions. Read the submissions before acting.</span>
+  </div></div>` : `<div class="pad"><p class="muted">Nothing unusual. They are reviewing work
+    and paying for it at ordinary rates.</p></div>`}
+
+  <div class="pad">
+    <div class="stat-row">
+      <div class="stat"><b>${b.jobsActive}</b><span>jobs running</span></div>
+      <div class="stat"><b>${b.jobs}</b><span>jobs posted</span></div>
+      <div class="stat ${b.waiting ? 'warn' : ''}"><b>${b.waiting}</b><span>waiting on them</span></div>
+      <div class="stat ok"><b>${V.money(b.paidOut)}</b><span>paid to workers</span></div>
+      <div class="stat"><b>${V.money(b.held)}</b><span>still in escrow</span></div>
+    </div>
+    <div class="stat-row">
+      <div class="stat"><b>${b.approved}</b><span>approved</span></div>
+      <div class="stat ${b.rejectRate !== null && b.rejectRate >= 40 ? 'bad' : ''}">
+        <b>${b.rejected}</b><span>rejected${b.rejectRate !== null ? ` (${b.rejectRate}%)` : ''}</span></div>
+      <div class="stat ${b.lapsed ? 'warn' : ''}"><b>${b.lapsed}</b><span>deadline lapsed</span></div>
+      <div class="stat"><b>${b.reviewDays === null ? '--' : b.reviewDays + 'd'}</b><span>average to review</span></div>
+      <div class="stat ${b.upheld ? 'bad' : ''}"><b>${b.upheld} / ${b.reports}</b><span>reports upheld</span></div>
+      <div class="stat"><b>${b.stars === null ? '--' : b.stars + '/5'}</b><span>worker rating${b.ratings ? ` (${b.ratings})` : ''}</span></div>
+    </div>
+    <p class="fine">Money in escrow is theirs until work is approved, and returns to them if a
+       job is cancelled. It is not ours and it is not the workers' yet, which is why it is
+       counted separately from a balance.</p>
+  </div>
+
+  ${jobs.length ? `<div class="table-wrap"><table>
+    <thead><tr><th>Job</th><th class="right">Pays</th><th class="right">Filled</th>
+      <th class="right">Waiting</th><th class="right">Escrow</th><th>State</th></tr></thead>
+    <tbody>${jobs.map(j => {
+      const waiting = db.prepare("SELECT COUNT(*) AS n FROM submissions WHERE job_id = ? AND status = 'submitted'").get(j.id).n;
+      return `<tr>
+        <td><a class="link" href="/jobs/${j.id}">${V.esc(j.title)}</a></td>
+        <td class="num right">${V.money(j.rate)}</td>
+        <td class="num right">${j.slots_filled} / ${j.slots}</td>
+        <td class="num right ${waiting ? 'warn-t' : ''}">${waiting}</td>
+        <td class="num right">${V.money(money.escrowRemaining(j.id))}</td>
+        <td>${V.statusPill(j.status)}</td></tr>`;
+    }).join('')}</tbody></table></div>` : ''}
+</div>`;
+  })()}
+
   <div class="card-head"><h2>Adjust balance</h2></div>
   <div class="pad">
     <p class="muted">Adds or removes money by hand. It appears in their wallet history
@@ -3132,8 +3575,8 @@ const EDITABLE = [
     hint: 'Tawk.to, Crisp or similar. Leave blank to use the built-in ticket system only.' },
   { key: 'support_hours', label: 'When support answers', text: true, group: 'Support channels' },
 
-  { key: 'mail_enabled', label: 'Send email', text: true, group: 'Email',
-    hint: '1 to send, 0 to hold everything. Anything queued while off is sent when you turn it on.' },
+  { key: 'mail_enabled', label: 'Send email', bool: true, group: 'Email',
+    hint: 'Nothing is sent until the host and from-address below are filled in. Set to No to hold mail deliberately - it is queued, not lost.' },
   { key: 'mail_from', label: 'Send from address', text: true, group: 'Email',
     hint: 'Must be an address your mail server is allowed to send as.' },
   { key: 'mail_from_name', label: 'Send from name', text: true, group: 'Email' },
@@ -3144,11 +3587,11 @@ const EDITABLE = [
   { key: 'smtp_user', label: 'SMTP username', text: true, group: 'Email' },
   { key: 'smtp_pass', label: 'SMTP password', text: true, secret: true, group: 'Email',
     hint: 'Leave blank to keep the one already saved. For Gmail this is an app password, not your account password.' },
-  { key: 'mail_on_signup', label: 'Email on sign-up', text: true, group: 'Which emails go out', hint: '1 or 0' },
-  { key: 'mail_on_task_submitted', label: 'Email the buyer when work arrives', text: true, group: 'Which emails go out', hint: '1 or 0' },
-  { key: 'mail_on_task_decided', label: 'Email the worker on approve or reject', text: true, group: 'Which emails go out', hint: '1 or 0' },
-  { key: 'mail_on_deposit', label: 'Email on deposit', text: true, group: 'Which emails go out', hint: '1 or 0' },
-  { key: 'mail_on_withdrawal', label: 'Email on withdrawal', text: true, group: 'Which emails go out', hint: '1 or 0' },
+  { key: 'mail_on_signup', label: 'Email on sign-up', bool: true, group: 'Which emails go out' },
+  { key: 'mail_on_task_submitted', label: 'Email the buyer when work arrives', bool: true, group: 'Which emails go out' },
+  { key: 'mail_on_task_decided', label: 'Email the worker on approve or reject', bool: true, group: 'Which emails go out' },
+  { key: 'mail_on_deposit', label: 'Email on deposit', bool: true, group: 'Which emails go out' },
+  { key: 'mail_on_withdrawal', label: 'Email on withdrawal', bool: true, group: 'Which emails go out' },
 ];
 
 app.get('/admin/settings', need('admin'), (req, res) => {
@@ -3168,6 +3611,12 @@ app.get('/admin/settings', need('admin'), (req, res) => {
         const raw = getSetting(f.key, '');
         const shown = f.secret ? '' : (f.money ? (Number(raw) / 100).toFixed(2) : raw);
         const hint = f.hint || (f.money ? 'In ' + getSetting('currency') : (f.bps ? 'Basis points: 1000 = 10%' : ''));
+        if (f.bool) {
+          return V.field({
+            label: f.label, name: f.key, type: 'select', value: raw === '1' ? '1' : '0', hint,
+            options: [{ value: '1', label: 'Yes' }, { value: '0', label: 'No' }],
+          });
+        }
         return V.field({
           label: f.label, name: f.key, value: shown, hint,
           type: f.secret ? 'password' : 'text',
@@ -3183,8 +3632,19 @@ app.get('/admin/settings', need('admin'), (req, res) => {
   <p class="muted">Sends one message to your own address, through the settings above.
      It tells you whether the connection and the password work before anybody
      else finds out the hard way.</p>
-  <p class="muted">Right now mail is
-    <b>${mail.enabled() ? 'on' : 'off'}</b>${mail.enabled() ? ` via ${V.esc(mail.config().host)}:${mail.config().port}` : ''}.</p>
+  ${(() => {
+    const c = mail.config();
+    if (c.enabled) {
+      return `<p class="muted">Mail is <b>on</b>, sending through
+        ${V.esc(c.host)}:${c.port} as ${V.esc(c.from)}.</p>`;
+    }
+    const missing = [];
+    if (getSetting('mail_enabled', '1') !== '1') missing.push('"Send email" is set to No');
+    if (!c.host) missing.push('no SMTP host');
+    if (!c.from) missing.push('no from-address');
+    return `<p class="muted">Mail is <b>off</b>: ${V.esc(missing.join(', '))}.
+      Messages are still being written down and will go out once this is fixed.</p>`;
+  })()}
   <form method="post" action="/admin/mail/test">
     ${csrfField(req)}
     ${V.field({ label: 'Send a test to', name: 'to', value: req.user.email, required: true })}
@@ -3200,7 +3660,14 @@ app.post('/admin/settings', need('admin'), (req, res) => {
     const given = String(req.body[f.key] == null ? '' : req.body[f.key]).trim();
     let value;
 
-    if (f.secret) {
+    if (f.bool) {
+      /* A select always submits, so an absent key means the form did not carry
+         this field at all - a partial post, or an older page. Leaving it alone
+         is the safe reading. Treating absent as "no" once silently switched
+         mail off for a save that never mentioned mail. */
+      if (req.body[f.key] === undefined) continue;
+      value = given === '1' ? '1' : '0';
+    } else if (f.secret) {
       // A blank secret means "leave it alone", not "erase it". Otherwise
       // opening the settings page and saving anything wipes the mail password,
       // and mail stops working for a reason nobody connects to the visit.

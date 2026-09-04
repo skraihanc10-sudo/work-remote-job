@@ -566,9 +566,14 @@ const DEFAULTS = {
   live_chat_url: '',
   support_hours: '10:00 - 22:00, seven days a week (Dhaka time)',
 
-  // Outgoing mail. Left off until it is configured, because a site that
-  // silently fails to send is worse than one that says it cannot.
-  mail_enabled: '0',
+  /* Outgoing mail.
+
+     On by default, because "on" here only means "send once there is somewhere
+     to send through": nothing goes out until smtp_host and mail_from are also
+     filled in. Two switches to flip meant people configured SMTP correctly,
+     saw nothing arrive, and had no idea a separate toggle was still off.
+     Set it to 0 to deliberately hold all mail while leaving SMTP configured. */
+  mail_enabled: '1',
   mail_from_name: 'Remote Work BD',
   mail_from: '',
   smtp_host: '',

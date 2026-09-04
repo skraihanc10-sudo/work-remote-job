@@ -1012,3 +1012,99 @@ label.check span { font-size: 13px; color: var(--ink-2); line-height: 1.5; }
 .stack h3 { font-family: var(--head); font-size: 15.5px; margin: 0 0 4px; }
 .stack.border-top { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
 .inline-form { display: inline-block; margin-top: 10px; }
+
+/* ============================================================ admin dashboard */
+
+/* What is waiting for a person, before any totals. A dashboard that opens with
+   a wall of numbers teaches people to skim past the one that mattered. */
+.todo {
+  background: var(--navy); color: #fff; border-radius: 12px;
+  padding: 18px 20px; margin-bottom: 24px;
+}
+.todo > b { display: block; font-family: var(--head); font-size: 14px; margin-bottom: 12px; opacity: .85; }
+.todo.clear { display: flex; align-items: baseline; gap: 10px; }
+.todo.clear > b { margin: 0; }
+.todo.clear span { opacity: .75; font-size: 13.5px; }
+.todo-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.todo-row a {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .16);
+  color: #fff; text-decoration: none; padding: 8px 14px; border-radius: 8px; font-size: 13.5px;
+}
+.todo-row a:hover { background: rgba(255, 255, 255, .18); }
+.todo-row .n { font-family: var(--head); font-size: 16px; font-weight: 700; }
+
+.sec {
+  font-family: var(--head); font-size: 17px; margin: 30px 0 12px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--line);
+}
+
+.kpi-row {
+  display: grid; gap: 10px; margin-bottom: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+}
+.kpi {
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px 16px; text-decoration: none; color: var(--ink); display: block;
+}
+a.kpi:hover { border-color: var(--green); }
+.kpi b {
+  display: block; font-family: var(--head); font-size: 22px; line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.kpi span { display: block; color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+.kpi em { display: block; color: var(--muted); font-size: 11.5px; font-style: normal; margin-top: 6px; line-height: 1.45; }
+.kpi.ok b { color: var(--green); }
+.kpi.bad b { color: var(--red); }
+.kpi.warn b { color: var(--amber); }
+
+/* Bars drawn as SVG rather than a charting library: the CSP forbids one, and
+   this is twenty lines against a hundred kilobytes. */
+.chart { margin: 4px 0 10px; }
+.chart svg { width: 100%; height: 60px; display: block; }
+.chart-foot { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 4px; }
+
+.range { display: flex; gap: 4px; flex-wrap: wrap; }
+.range a {
+  padding: 6px 13px; border: 1px solid var(--line); border-radius: 7px;
+  background: var(--card); color: var(--ink-2); text-decoration: none; font-size: 13px;
+}
+.range a.on { background: var(--navy); border-color: var(--navy); color: #fff; font-weight: 600; }
+.range a:hover:not(.on) { border-color: var(--green); }
+.wide-range { margin-bottom: 16px; }
+.wide-range a i { font-style: normal; opacity: .65; margin-left: 4px; }
+.wide-range a.alt { border-style: dashed; margin-left: auto; }
+
+.kv.tight dt, .kv.tight dd { padding: 4px 0; font-size: 13.5px; }
+.kv .fine-dt { color: var(--muted); font-size: 12px; font-weight: 400; }
+.tight-list { margin: 8px 0 6px; padding-left: 18px; }
+.tight-list li { margin-bottom: 4px; }
+
+.row-warn { background: var(--amber-bg); }
+td.warn-t, .warn-t { color: var(--amber); font-weight: 600; }
+
+/* --------------------------------------------------- the sign-up role choice */
+.role-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 18px; }
+.role-pick a {
+  display: block; padding: 11px 13px; border: 1.5px solid var(--line); border-radius: 9px;
+  text-decoration: none; color: var(--ink-2); background: var(--card); text-align: center;
+}
+.role-pick a b { display: block; font-family: var(--head); font-size: 14px; }
+.role-pick a span { display: block; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.role-pick a.on { border-color: var(--green); background: var(--green-bg); color: var(--ink); }
+.role-pick a.on b { color: var(--green-dk); }
+
+/* An admin has a dozen tools and the header fits six. The rest live here,
+   shown only to an admin and only on an admin page. */
+.adminbar { background: var(--sunk); border-bottom: 1px solid var(--line); }
+.adminbar-in {
+  display: flex; gap: 2px; overflow-x: auto; padding: 0;
+  scrollbar-width: thin;
+}
+.adminbar-in a {
+  padding: 10px 14px; font-size: 13px; color: var(--muted);
+  text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent;
+}
+.adminbar-in a:hover { color: var(--ink); }
+.adminbar-in a.on { color: var(--navy); font-weight: 600; border-bottom-color: var(--green); background: var(--card); }
+@media (max-width: 900px) { .adminbar { display: none; } }

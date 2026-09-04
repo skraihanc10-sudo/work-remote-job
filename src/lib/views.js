@@ -66,6 +66,33 @@ function br(text) {
    people are here to do one of four things, and those four should be one thumb
    away rather than behind a menu.
 */
+/* Everything an admin can reach. The header shows six of these; this is the
+   whole set, rendered as a toolbar under the header on admin pages so nothing
+   becomes unreachable just because it did not fit. */
+const ADMIN_TOOLS = [
+  { href: '/admin', label: 'Dashboard', key: 'admin' },
+  { href: '/admin/users', label: 'People', key: 'users' },
+  { href: '/admin/buyers', label: 'Buyers', key: 'buyers' },
+  { href: '/admin/jobs', label: 'Jobs', key: 'jobs' },
+  { href: '/admin/money', label: 'Money', key: 'money' },
+  { href: '/admin/reports', label: 'Reports', key: 'reports' },
+  { href: '/admin/roles', label: 'Roles', key: 'roles' },
+  { href: '/admin/support', label: 'Support', key: 'support' },
+  { href: '/admin/connections', label: 'Connections', key: 'connections' },
+  { href: '/admin/gateway', label: 'Gateway', key: 'gateway' },
+  { href: '/admin/mail', label: 'Email', key: 'mail' },
+  { href: '/admin/settings', label: 'Settings', key: 'settings' },
+];
+
+const ADMIN_KEYS = new Set(ADMIN_TOOLS.map(t => t.key));
+
+function adminBar(user, active) {
+  if (!user || user.role !== 'admin' || !ADMIN_KEYS.has(active)) return '';
+  return `<div class="adminbar"><div class="wrap adminbar-in">
+    ${ADMIN_TOOLS.map(t => `<a class="${t.key === active ? 'on' : ''}" href="${t.href}">${esc(t.label)}</a>`).join('')}
+  </div></div>`;
+}
+
 function navItems(user) {
   if (!user) {
     return [
@@ -80,15 +107,14 @@ function navItems(user) {
 
   if (user.role === 'admin') {
     return [
-      { href: '/admin', label: 'Overview', key: 'admin', tab: true, icon: 'grid' },
-      { href: '/admin/users', label: 'Users', key: 'users', tab: true, icon: 'user' },
+      // Six in the header, because twelve wrapped onto a second row and made
+      // every admin page look broken. The rest live in the toolbar below it,
+      // which is only ever shown to an admin on an admin page.
+      { href: '/admin', label: 'Dashboard', key: 'admin', tab: true, icon: 'grid' },
+      { href: '/admin/users', label: 'People', key: 'users', tab: true, icon: 'user' },
+      { href: '/admin/jobs', label: 'Jobs', key: 'jobs', tab: true, icon: 'list' },
       { href: '/admin/money', label: 'Money', key: 'money', tab: true, icon: 'cash' },
       { href: '/admin/support', label: 'Support', key: 'support', tab: true, icon: 'chat' },
-      { href: '/admin/reports', label: 'Reports', key: 'reports' },
-      { href: '/admin/roles', label: 'Roles', key: 'roles' },
-      { href: '/admin/connections', label: 'Connections', key: 'connections' },
-      { href: '/admin/gateway', label: 'Gateway', key: 'gateway' },
-      { href: '/admin/mail', label: 'Email', key: 'mail' },
       { href: '/admin/settings', label: 'Settings', key: 'settings' },
     ];
   }
@@ -147,8 +173,16 @@ function deskNav(user, active) {
     + (user ? '<a href="/logout" class="btn btn-ghost btn-sm">Sign out</a>' : '');
 }
 
+function drawerItems(user) {
+  const base = navItems(user);
+  if (!user || user.role !== 'admin') return base;
+  // On a phone there is no toolbar, so the drawer carries the full set.
+  const seen = new Set(base.map(i => i.key));
+  return base.concat(ADMIN_TOOLS.filter(t => !seen.has(t.key)));
+}
+
 function drawer(user, active) {
-  const items = navItems(user);
+  const items = drawerItems(user);
   return `<div class="drawer" id="drawer" hidden>
   <div class="drawer-panel">
     <div class="drawer-top">
@@ -211,6 +245,7 @@ function layout({ title, user, active, body, flash, wide, notices, csrf, bare })
 </header>
 
 ${bare ? '' : drawer(user, active)}
+${bare ? '' : adminBar(user, active)}
 
 ${user && user.status === 'suspended' ? `
 <div class="wrap"><div class="alert alert-stop">
