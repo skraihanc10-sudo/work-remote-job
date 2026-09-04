@@ -41,6 +41,19 @@ function canStart(worker, job) {
   if (worker.id === job.merchant_id) {
     return { allowed: false, code: 'own_job', reason: 'This is your own job.' };
   }
+  /* An unconfirmed address cannot take work.
+
+     This is the whole reason password sign-up is safe to offer. A name and an
+     address cost nothing to invent, but a working inbox per account is real
+     effort, which is the same thing that made Google-only sign-in worth
+     having. Google accounts arrive already confirmed, so this never touches
+     them. */
+  if (!worker.email_verified) {
+    return {
+      allowed: false, code: 'unverified',
+      reason: 'Confirm your email address first. Check your inbox for the link, or ask for a new one on your account page.',
+    };
+  }
   if (job.status !== 'active') {
     return { allowed: false, code: 'closed', reason: 'This job is no longer taking work.' };
   }

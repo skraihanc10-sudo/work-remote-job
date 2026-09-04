@@ -134,6 +134,9 @@ function creditGatewayDeposit(depositId, providerStatus, chargedAmount, chargedC
     });
 
     db.exec('COMMIT');
+    // After the commit, so the receipt only ever describes money that is
+    // really in the balance. Required late to avoid a cycle: mail reads money.
+    require('./mail').depositCredited(dep.user_id, dep.amount, dep.provider || dep.method);
     return { credited: true, userId: dep.user_id, amount: dep.amount };
   } catch (err) {
     db.exec('ROLLBACK');
@@ -266,10 +269,12 @@ function requestWithdrawal(userId, amount, method, detail) {
 }
 
 function settleWithdrawal(id, approve, note) {
+  let settled = null;
   db.exec('BEGIN IMMEDIATE');
   try {
     const w = db.prepare("SELECT * FROM withdrawals WHERE id = ? AND status = 'pending'").get(id);
     if (!w) throw new Error('That withdrawal is not pending');
+    settled = w;
 
     if (approve) {
       db.prepare("UPDATE withdrawals SET status = 'paid', note = ?, reviewed_at = datetime('now') WHERE id = ?")
@@ -285,6 +290,9 @@ function settleWithdrawal(id, approve, note) {
     db.exec('ROLLBACK');
     throw err;
   }
+  // Outside the transaction: a declined withdrawal has already put the money
+  // back, and the person should be told either way.
+  require('./mail').withdrawalSettled(settled.user_id, settled.amount, !!approve, note);
 }
 
 module.exports = {

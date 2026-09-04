@@ -22,6 +22,9 @@ const google = require('./lib/google');
 const eps = require('./lib/payments/eps');
 const cryptomus = require('./lib/payments/cryptomus');
 const referrals = require('./lib/referrals');
+const mail = require('./lib/mail');
+const smtp = require('./lib/smtp');
+const passwords = require('./lib/passwords');
 const quality = require('./lib/quality');
 const money = require('./lib/money');
 const spam = require('./lib/antispam');
@@ -163,6 +166,31 @@ function fail(res, msg) {
       `<div class="card pad"><h1>That did not work</h1><p class="muted">${V.esc(msg)}</p>
        <p><a href="/" class="btn">Back to the site</a></p></div>`,
   }));
+}
+
+/* Countries the sign-up form offers. Bangladesh first because that is where
+   most people here are; the rest are the places workers actually sign up
+   from. "Other" catches everybody else rather than pretending the list is
+   complete. */
+const COUNTRIES = [
+  'Bangladesh', 'India', 'Pakistan', 'Nepal', 'Sri Lanka', 'Indonesia',
+  'Philippines', 'Vietnam', 'Malaysia', 'Egypt', 'Nigeria', 'Kenya',
+  'Morocco', 'Algeria', 'United Arab Emirates', 'Saudi Arabia', 'Qatar',
+  'United Kingdom', 'United States', 'Canada', 'Australia', 'Other',
+];
+
+/* Where to go after signing in.
+
+   Only ever somewhere on this site. Taking the parameter at face value turns
+   the sign-in page into an open redirect: a link that looks like ours, sends
+   people through a real login, and lands them on somebody else's page. The
+   second slash is the one that matters - "//evil.test" is a URL to another
+   host, not a path here.
+*/
+function safeNext(value) {
+  const v = String(value || '');
+  if (!v.startsWith('/') || v.startsWith('//') || /^\/[\\]/.test(v)) return '';
+  return v;
 }
 
 function need(role) {
@@ -1065,8 +1093,6 @@ app.get('/faq', (req, res) => {
 
 // ------------------------------------------------------------------ contact
 app.get('/contact', (req, res) => {
-  const tg = getSetting('telegram_channel', '');
-  const tgs = getSetting('telegram_support', '');
   docPage(req, res, {
     title: 'Contact',
     lead: 'The fastest way to reach us is from inside your account, because we can see your tasks and payments next to your message.',
@@ -1079,13 +1105,8 @@ app.get('/contact', (req, res) => {
     <a class="btn" href="/support">Open support</a>
   </div>
   <div class="card pad">
-    <h2>Telegram</h2>
-    ${tg || tgs ? `<p class="muted">Announcements and quick questions.</p>
-      <div class="btn-row">
-        ${tg ? `<a class="btn btn-ghost" href="${V.esc(tg)}" target="_blank" rel="noopener">Channel</a>` : ''}
-        ${tgs ? `<a class="btn btn-ghost" href="${V.esc(tgs)}" target="_blank" rel="noopener">Support chat</a>` : ''}
-      </div>`
-      : '<p class="muted">Our Telegram links are not published yet.</p>'}
+    <h2>Message us elsewhere</h2>
+    ${supportChannels() || '<p class="muted">Our chat channels are not published yet.</p>'}
   </div>
 </div>
 
@@ -1102,33 +1123,27 @@ ${contactBlock()}
 // ======================================================================
 // SIGN IN  (Google only - there are no passwords anywhere in this app)
 // ======================================================================
-app.get(['/login', '/register'], (req, res) => {
+/* The two ways in.
+
+   Google first, because it is the stronger of the two here: anybody can
+   invent a name and an address, but a crowd of Google accounts costs real
+   effort, and that effort is what protects honest workers from somebody
+   farming a job with twenty identities.
+
+   The password form exists because not everybody has a Google account, or
+   wants to use it. Accounts made that way have to confirm their address
+   before they can work or withdraw, which puts a real inbox behind each one.
+*/
+function authPage(req, res, mode) {
   if (req.user) return res.redirect('/');
   const next = String(req.query.next || '');
+  const want = req.query.want === 'merchant' ? 'merchant' : '';
+  const nextField = next ? `<input type="hidden" name="next" value="${V.esc(next)}">` : '';
+  const signup = mode === 'signup';
 
-  if (!google.configured()) {
-    return send(req, res, {
-      title: 'Sign in',
-      body: `<div class="narrow"><div class="card pad">
-        <h1>Sign-in is not set up yet</h1>
-        <p class="muted">This site uses Google sign-in only. The owner needs to add
-           <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> before anyone can sign in.</p>
-        <p class="muted">The steps are in the README.</p>
-      </div></div>`,
-    });
-  }
-
-  send(req, res, {
-    title: 'Sign in',
-    body: `
-<div class="signin-split">
-  <div class="signin-left">
-    <h1>${req.query.want === 'merchant' ? 'Start hiring' : 'Sign in'}</h1>
-    <p class="muted">One button for everything. If you have never been here before
-       this creates your account; if you have, it signs you in.</p>
-
-    <a class="google-btn" href="/auth/google?want=${V.esc(req.query.want === 'merchant' ? 'merchant' : '')}${next ? '&next=' + encodeURIComponent(next) : ''}">
-      <svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true">
+  const googleBtn = google.configured() ? `
+    <a class="google-btn" href="/auth/google?want=${V.esc(want)}${next ? '&next=' + encodeURIComponent(next) : ''}">
+      <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true">
         <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.2 17.7 9.5 24 9.5z"/>
         <path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.4-4.7 7l7.6 5.9c4.4-4.1 6.8-10.1 6.8-17.3z"/>
         <path fill="#FBBC05" d="M10.4 28.7c-.5-1.4-.8-2.9-.8-4.7s.3-3.3.8-4.7l-7.8-6.1C.9 16.4 0 20.1 0 24s.9 7.6 2.6 10.8l7.8-6.1z"/>
@@ -1136,33 +1151,375 @@ app.get(['/login', '/register'], (req, res) => {
       </svg>
       <span>Continue with Google</span>
     </a>
+    <div class="or"><span>or ${signup ? 'sign up' : 'sign in'} with your details</span></div>` : '';
 
-    ${req.query.want === 'merchant'
-      ? '<p class="fine">You are signing up to <b>hire</b>. You can change this later.</p>'
-      : '<p class="fine">New here? This is also how you create an account.</p>'}
+  const points = signup ? [
+    'Get access to every task on the board',
+    'Withdraw what you earn, from ' + V.money(numSetting('min_withdrawal')) + ' upwards',
+    'Join with a referral code if you have one',
+    'One account per person - that is what keeps the work fair',
+  ] : [
+    'Pick up where you left off',
+    'See what you have earned and what is still in review',
+    'Manage your account and payout details',
+    'Get help from support whenever you need it',
+  ];
+
+  send(req, res, {
+    title: signup ? 'Create your account' : 'Sign in',
+    bare: true,
+    body: `
+<div class="auth-split">
+  <div class="auth-tell">
+    <span class="eyebrow">${signup ? 'Create your account' : 'Welcome back'}</span>
+    <h1>${signup ? 'Join <b>Remote Work BD</b> today' : 'Sign in to <b>Remote Work BD</b>'}</h1>
+    <p>${signup
+      ? 'Create your account to take on tasks, post your own work, and get paid for what you finish. Every job here is funded before it goes live.'
+      : 'Sign in to reach your dashboard, carry on with your tasks, manage your balance and keep using Remote Work BD.'}</p>
+    <ul class="auth-points">
+      ${points.map(x => `<li>${V.esc(x)}</li>`).join('')}
+    </ul>
+    <div class="auth-note">
+      <b>${signup ? 'Simple and secure registration' : 'Secure account access'}</b>
+      <p>${signup
+        ? 'Please use real details. Your email has to be confirmed before you can take work or withdraw, and one person may hold one account.'
+        : 'Use the email or username you registered with. If you signed up with Google, use the Google button instead.'}</p>
+    </div>
   </div>
 
-  <div class="signin-right">
-    <h2>Why Google, and nothing else</h2>
-    <div class="signin-point">
-      <span class="tick">1</span>
-      <span><b>No password to lose</b>
-        <span>We never see your Google password, and there is none stored here to leak.</span></span>
-    </div>
-    <div class="signin-point">
-      <span class="tick">2</span>
-      <span><b>One person, one account</b>
-        <span>Anyone can invent a name and a phone number. A crowd of Google accounts
-          costs real effort, which is what protects people doing honest work.</span></span>
-    </div>
-    <div class="signin-point">
-      <span class="tick">3</span>
-      <span><b>We receive very little</b>
-        <span>Your name, email address and profile picture. Nothing else.</span></span>
+  <div class="auth-form">
+    <div class="auth-card">
+      <h2>${signup ? 'Sign up with your details' : 'Sign in to your account'}</h2>
+      <p class="sub">${signup
+        ? 'Fill in the fields below to create your new account.'
+        : 'Enter your details below to reach your account.'}</p>
+
+      ${googleBtn}
+
+      <form method="post" action="${signup ? '/signup' : '/login'}" class="auth-fields">
+        ${nextField}
+        ${want ? `<input type="hidden" name="want" value="merchant">` : ''}
+        ${signup ? `
+          <label for="a-name">Name</label>
+          <input id="a-name" name="name" required maxlength="80" autocomplete="name"
+                 placeholder="Your full name" value="${V.esc(req.query.name || '')}">
+
+          <label for="a-email">Email address</label>
+          <input id="a-email" name="email" type="email" required autocomplete="email"
+                 placeholder="you@example.com" value="${V.esc(req.query.email || '')}">
+
+          <label for="a-username">Username</label>
+          <input id="a-username" name="username" required autocomplete="username"
+                 placeholder="Letters, numbers, dot or underscore" value="${V.esc(req.query.username || '')}">
+
+          <label for="a-ref">Referral code <em>optional</em></label>
+          <input id="a-ref" name="ref" placeholder="If somebody invited you"
+                 value="${V.esc(req.query.ref || cookies(req).wrj_ref || '')}">
+
+          <label for="a-pass">Password</label>
+          <input id="a-pass" name="password" type="password" required minlength="8"
+                 autocomplete="new-password" placeholder="At least 8 characters">
+
+          <label for="a-pass2">Confirm password</label>
+          <input id="a-pass2" name="password2" type="password" required minlength="8"
+                 autocomplete="new-password" placeholder="Type it again">
+
+          <label for="a-country">Country</label>
+          <select id="a-country" name="country">
+            <option value="">Select your country</option>
+            ${COUNTRIES.map(c => `<option value="${V.esc(c)}"${req.query.country === c ? ' selected' : ''}>${V.esc(c)}</option>`).join('')}
+          </select>
+
+          <label class="check">
+            <input type="checkbox" name="agree" value="1" required>
+            <span>I agree to the <a href="/terms" target="_blank">Terms &amp; conditions</a>
+              and the <a href="/privacy-policy" target="_blank">Privacy policy</a>.</span>
+          </label>
+
+          <button class="btn btn-lg btn-block" type="submit">Create my account</button>
+          <p class="swap">Already have an account? <a href="/login${next ? '?next=' + encodeURIComponent(next) : ''}">Sign in</a></p>
+        ` : `
+          <label for="a-id">Email address or username</label>
+          <input id="a-id" name="identifier" required autocomplete="username"
+                 placeholder="Your email or username" value="${V.esc(req.query.id || '')}">
+
+          <label for="a-pass">Password</label>
+          <input id="a-pass" name="password" type="password" required
+                 autocomplete="current-password" placeholder="Your password">
+
+          <div class="auth-row">
+            <span></span>
+            <a href="/forgot">Forgotten your password?</a>
+          </div>
+
+          <button class="btn btn-lg btn-block" type="submit">Sign in</button>
+          <p class="swap">No account yet? <a href="/signup${next ? '?next=' + encodeURIComponent(next) : ''}">Create one</a></p>
+        `}
+      </form>
+
+      <p class="fine">${signup
+        ? 'Check your details are right before you submit.'
+        : 'Use your correct sign-in details to reach your account safely.'}</p>
     </div>
   </div>
 </div>`,
   });
+}
+
+app.get(['/login', '/signin'], (req, res) => authPage(req, res, 'login'));
+app.get(['/signup', '/register'], (req, res) => authPage(req, res, 'signup'));
+
+/* Re-show the form with what they typed still in it. Losing eight fields
+   because one was wrong is how people give up on signing up. */
+function backToForm(res, path, body, msg) {
+  const keep = ['name', 'email', 'username', 'ref', 'country'];
+  const q = keep
+    .filter(k => body[k])
+    .map(k => `${k}=${encodeURIComponent(String(body[k]).slice(0, 120))}`)
+    .join('&');
+  res.redirect(`${path}?${q}${q ? '&' : ''}msg=${encodeURIComponent(msg)}&kind=fail`);
+}
+
+app.post('/signup', (req, res) => {
+  if (req.user) return res.redirect('/');
+  const b = req.body || {};
+
+  if (!b.agree) {
+    return backToForm(res, '/signup', b, 'Please accept the terms and the privacy policy.');
+  }
+  if (String(b.password || '') !== String(b.password2 || '')) {
+    return backToForm(res, '/signup', b, 'The two passwords are not the same.');
+  }
+
+  let user;
+  try {
+    user = auth.signUpWithPassword({
+      name: b.name, email: b.email, username: b.username, password: b.password,
+      country: b.country, role: b.want === 'merchant' ? 'merchant' : 'worker',
+      ip: req.ip,
+    });
+  } catch (err) {
+    return backToForm(res, '/signup', b, err.message);
+  }
+
+  // Referral, if they came in on somebody's link. Only ever at creation.
+  try {
+    const code = String(b.ref || cookies(req).wrj_ref || '').trim();
+    if (code) referrals.attach(user.id, code);
+  } catch { /* a bad code is not a reason to fail a sign-up */ }
+
+  try {
+    mail.verifyEmail(user, auth.issueToken(user.id, 'verify'));
+    mail.welcome(user);
+  } catch (err) { console.error('welcome mail:', err.message); }
+
+  const session = auth.startSession(user.id);
+  res.setHeader('Set-Cookie', [
+    `wrj_session=${session.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${session.maxAge}`,
+    'wrj_ref=; HttpOnly; Path=/; Max-Age=0',
+  ]);
+  auth.recordLogin(user.id, req.ip, req.get('user-agent'));
+  audit(user.id, 'signup', `user:${user.id}`, { via: 'password' }, req.ip);
+
+  back(res, safeNext(b.next) || '/',
+    mail.enabled()
+      ? 'Welcome. Check your email and confirm your address to start working.'
+      : 'Welcome. Your account is ready.',
+    'ok');
+});
+
+app.post('/login', (req, res) => {
+  if (req.user) return res.redirect('/');
+  const b = req.body || {};
+  let user;
+  try {
+    user = auth.signInWithPassword({ identifier: b.identifier, password: b.password, ip: req.ip });
+  } catch (err) {
+    return res.redirect('/login?id=' + encodeURIComponent(String(b.identifier || '').slice(0, 120))
+      + '&msg=' + encodeURIComponent(err.message) + '&kind=fail');
+  }
+
+  const session = auth.startSession(user.id);
+  res.setHeader('Set-Cookie',
+    `wrj_session=${session.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${session.maxAge}`);
+  auth.recordLogin(user.id, req.ip, req.get('user-agent'));
+  audit(user.id, 'login', `user:${user.id}`, { via: 'password' }, req.ip);
+  res.redirect(safeNext(b.next) || '/');
+});
+
+// ------------------------------------------------------- confirming an email
+app.get('/verify', (req, res) => {
+  const user = auth.useToken(String(req.query.t || ''), 'verify');
+  if (!user) {
+    return send(req, res, {
+      title: 'That link has expired',
+      body: `<div class="narrow"><div class="card pad">
+        <h1>That link has expired</h1>
+        <p class="muted">Confirmation links last 24 hours and work once. Sign in and
+           ask for a new one - it takes a second.</p>
+        <p><a class="btn" href="/login">Sign in</a></p>
+      </div></div>`,
+    });
+  }
+  auth.markVerified(user.id);
+  if (req.user && req.user.id === user.id) {
+    return back(res, '/', 'Your email address is confirmed. Everything is open to you now.', 'ok');
+  }
+  back(res, '/login', 'Your email address is confirmed. Please sign in.', 'ok');
+});
+
+app.post('/resend-verification', need(), (req, res) => {
+  if (req.user.email_verified) return back(res, '/account', 'Your email is already confirmed.', 'info');
+  mail.verifyEmail(req.user, auth.issueToken(req.user.id, 'verify'));
+  back(res, '/account',
+    mail.enabled()
+      ? 'Sent. Check your inbox, and your spam folder if it is not there.'
+      : 'Mail is not switched on yet, so nothing could be sent. Contact support.',
+    mail.enabled() ? 'ok' : 'warn');
+});
+
+// -------------------------------------------------------- forgotten password
+app.get('/forgot', (req, res) => {
+  if (req.user) return res.redirect('/account');
+  send(req, res, {
+    title: 'Reset your password', bare: true,
+    body: `
+<div class="auth-split one">
+  <div class="auth-form">
+    <div class="auth-card">
+      <h2>Reset your password</h2>
+      <p class="sub">Give us the email address on your account and we will send a link to it.</p>
+      <form method="post" action="/forgot" class="auth-fields">
+        <label for="f-email">Email address</label>
+        <input id="f-email" name="email" type="email" required autocomplete="email"
+               placeholder="you@example.com">
+        <button class="btn btn-lg btn-block" type="submit">Send the link</button>
+        <p class="swap">Remembered it? <a href="/login">Sign in</a></p>
+      </form>
+    </div>
+  </div>
+</div>`,
+  });
+});
+
+/* Always the same answer, whether or not the address is on an account.
+
+   Anything else turns this form into a way of asking "does this person have
+   an account here", which is not ours to answer.
+*/
+app.post('/forgot', (req, res) => {
+  const email = auth.normalizeEmail((req.body || {}).email);
+  const said = 'If that address has an account, a reset link is on its way. Check your spam folder too.';
+
+  if (auth.tooManyFailures('reset:' + email, req.ip)) return back(res, '/login', said, 'ok');
+  auth.recordAttempt('reset:' + email, req.ip, false);
+
+  const user = db.prepare('SELECT * FROM users WHERE lower(email) = ?').get(email);
+  if (user && user.password_hash) {
+    mail.resetPassword(user, auth.issueToken(user.id, 'reset'));
+  } else if (user && !user.password_hash) {
+    // They have an account, but it signs in with Google. Telling them that by
+    // email is safe - it goes to the address that owns the account.
+    mail.queue({
+      userId: user.id, kind: 'reset',
+      subject: 'Signing in to Remote Work BD',
+      heading: 'Your account signs in with Google',
+      intro: 'You asked to reset a password, but this account has never had one.',
+      lines: ['Use the "Continue with Google" button and you will be straight in.'],
+      button: { label: 'Sign in with Google', href: mail.siteUrl() + '/login' },
+    });
+  }
+  back(res, '/login', said, 'ok');
+});
+
+app.get('/reset', (req, res) => {
+  const token = String(req.query.t || '');
+  // Looked at but not spent: spending it here would burn the link on a page
+  // load, and a mail scanner that follows links would lock people out.
+  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const row = db.prepare(`
+    SELECT 1 FROM email_tokens WHERE kind = 'reset' AND used_at IS NULL AND expires_at > ?
+  `).get(now);
+
+  if (!token || !row) {
+    return send(req, res, {
+      title: 'That link has expired',
+      body: `<div class="narrow"><div class="card pad">
+        <h1>That link has expired</h1>
+        <p class="muted">Reset links last one hour and work once.</p>
+        <p><a class="btn" href="/forgot">Send a new one</a></p>
+      </div></div>`,
+    });
+  }
+
+  send(req, res, {
+    title: 'Choose a new password', bare: true,
+    body: `
+<div class="auth-split one">
+  <div class="auth-form">
+    <div class="auth-card">
+      <h2>Choose a new password</h2>
+      <p class="sub">At least 8 characters. Everything signed in as you will be signed out.</p>
+      <form method="post" action="/reset" class="auth-fields">
+        <input type="hidden" name="t" value="${V.esc(token)}">
+        <label for="r-pass">New password</label>
+        <input id="r-pass" name="password" type="password" required minlength="8"
+               autocomplete="new-password" placeholder="At least 8 characters">
+        <label for="r-pass2">Confirm it</label>
+        <input id="r-pass2" name="password2" type="password" required minlength="8"
+               autocomplete="new-password" placeholder="Type it again">
+        <button class="btn btn-lg btn-block" type="submit">Save the new password</button>
+      </form>
+    </div>
+  </div>
+</div>`,
+  });
+});
+
+app.post('/reset', (req, res) => {
+  const b = req.body || {};
+  if (String(b.password || '') !== String(b.password2 || '')) {
+    return back(res, '/reset?t=' + encodeURIComponent(String(b.t || '')),
+      'The two passwords are not the same.', 'fail');
+  }
+
+  const user = auth.useToken(String(b.t || ''), 'reset');
+  if (!user) return back(res, '/forgot', 'That link has expired. Ask for a new one.', 'fail');
+
+  try {
+    auth.setPassword(user.id, b.password, user);
+  } catch (err) {
+    return back(res, '/forgot', err.message, 'fail');
+  }
+  // A confirmed reset also confirms the address: only its owner saw the link.
+  auth.markVerified(user.id);
+  mail.passwordChanged(user);
+  back(res, '/login', 'Your password is changed. Please sign in with it.', 'ok');
+});
+
+// ---------------------------------------------------------------- unsubscribe
+app.get('/unsubscribe', (req, res) => {
+  const id = mail.checkUnsubToken(String(req.query.t || ''));
+  if (!id) return fail(res, 'That unsubscribe link is not valid.');
+  db.prepare('UPDATE users SET email_opt_out = 1 WHERE id = ?').run(id);
+  send(req, res, {
+    title: 'Unsubscribed',
+    body: `<div class="narrow"><div class="card pad">
+      <h1>You are unsubscribed</h1>
+      <p class="muted">You will not get announcements or updates from us any more.</p>
+      <p class="muted">Messages about your own money and your account security still go
+         out - a receipt for a payment is not something we can decide to withhold.</p>
+      <p><a class="btn" href="/account">Change this back</a></p>
+    </div></div>`,
+  });
+});
+
+// One-click unsubscribe, as the List-Unsubscribe-Post header promises.
+app.post('/unsubscribe', (req, res) => {
+  const id = mail.checkUnsubToken(String(req.query.t || (req.body || {}).t || ''));
+  if (!id) return res.status(400).send('bad token');
+  db.prepare('UPDATE users SET email_opt_out = 1 WHERE id = ?').run(id);
+  res.send('unsubscribed');
 });
 
 app.get('/auth/google', (req, res) => {
@@ -1564,6 +1921,7 @@ app.post('/task/:id/submit', need('worker'), active, upload.single('proof'), che
   `).run(text, draft.proof_file, seconds, verdict.flagged, verdict.reason, s.id);
 
   audit(req.user.id, 'submit', `submission:${s.id}`, { seconds, flagged: verdict.flagged }, req.ip);
+  mail.taskSubmitted(s, job, req.user);
   back(res, '/task/' + s.id, 'Sent for review.', 'ok');
 });
 
@@ -1989,6 +2347,7 @@ app.post('/merchant/review/approve-clean', need('merchant'), (req, res) => {
       db.prepare("UPDATE submissions SET status = 'approved', reviewed_at = datetime('now') WHERE id = ?")
         .run(sub.id);
       db.exec('COMMIT');
+      mail.taskApproved(sub, job, result.net, false);
       paid++; total += result.net;
     } catch (err) {
       db.exec('ROLLBACK');
@@ -2023,6 +2382,9 @@ app.post('/submissions/:id/approve', need('merchant'), (req, res) => {
     }
     db.exec('COMMIT');
     audit(req.user.id, 'approve', `submission:${id}`, paid, req.ip);
+    // Queued after the commit, never inside it: a receipt must describe money
+    // that has actually moved.
+    mail.taskApproved(s, job, paid.net, false);
     back(res, '/merchant/review', `Paid ${money.fmt(paid.net)} to the worker.`, 'ok');
   } catch (err) {
     db.exec('ROLLBACK');
@@ -2055,6 +2417,14 @@ app.post('/submissions/:id/reject', need('merchant'), (req, res) => {
 
   const suspended = spam.afterRejection(workerId);
   audit(req.user.id, 'reject', `submission:${id}`, { note, suspended }, req.ip);
+
+  const rejected = db.prepare('SELECT * FROM submissions WHERE id = ?').get(id);
+  const rejectedJob = db.prepare('SELECT * FROM jobs WHERE id = ?').get(rejected.job_id);
+  mail.taskRejected(rejected, rejectedJob, note);
+  if (suspended) {
+    const w = db.prepare('SELECT suspend_reason, suspended_until FROM users WHERE id = ?').get(workerId);
+    mail.accountSuspended(workerId, w.suspend_reason, w.suspended_until);
+  }
   back(res, '/merchant/review', 'Rejected, and the slot is open again.', 'info');
 });
 
@@ -2192,6 +2562,13 @@ app.post('/wallet/deposit', need('merchant'), (req, res) => {
 });
 
 app.post('/wallet/withdraw', need('worker'), active, (req, res) => {
+  // Money leaving the site is the one action worth being strict about: an
+  // unconfirmed address means we have no way to reach whoever this is.
+  if (!req.user.email_verified) {
+    return back(res, '/account',
+      'Confirm your email address before withdrawing. It is the only way we can reach you about a payout.',
+      'warn');
+  }
   const amount = money.parseAmount(req.body.amount);
   if (!amount || amount <= 0) return fail(res, 'Enter an amount like 100.00');
   try {
@@ -2731,12 +3108,47 @@ const EDITABLE = [
   { key: 'strikes_before_suspend', label: 'Strikes before suspension' },
   { key: 'suspend_days', label: 'Suspension length in days' },
   { key: 'ip_accounts_warn', label: 'Accounts on one connection before a notice' },
-  { key: 'telegram_channel', label: 'Telegram channel URL', text: true },
-  { key: 'telegram_support', label: 'Telegram support URL', text: true },
-  { key: 'business_email', label: 'Contact email', text: true },
-  { key: 'business_phone', label: 'Contact phone', text: true },
-  { key: 'business_address', label: 'Registered address', text: true },
-  { key: 'business_reg', label: 'Business registration / trade licence', text: true },
+  // Every contact field is optional and is hidden across the whole site while
+  // it is blank, so a half-filled install never shows a dead link or an empty
+  // "call us on".
+  { key: 'business_email', label: 'Contact email', text: true, group: 'Business details' },
+  { key: 'business_phone', label: 'Contact phone', text: true, group: 'Business details' },
+  { key: 'business_address', label: 'Registered address', text: true, group: 'Business details' },
+  { key: 'business_reg', label: 'Business registration / trade licence', text: true, group: 'Business details' },
+
+  { key: 'telegram_channel', label: 'Telegram channel', text: true, group: 'Support channels',
+    hint: 'Announcements, one way. Full link: https://t.me/yourchannel' },
+  { key: 'telegram_support', label: 'Telegram support chat', text: true, group: 'Support channels',
+    hint: 'Where people message you directly: https://t.me/yourusername' },
+  { key: 'telegram_group', label: 'Telegram group', text: true, group: 'Support channels',
+    hint: 'The community group, if you run one.' },
+  { key: 'whatsapp_number', label: 'WhatsApp number', text: true, group: 'Support channels',
+    hint: 'International format, digits only: 8801XXXXXXXXX. The link is built for you.' },
+  { key: 'whatsapp_text', label: 'WhatsApp opening message', text: true, group: 'Support channels',
+    hint: 'Pre-filled in their chat box so you know what they are writing about.' },
+  { key: 'facebook_page', label: 'Facebook page', text: true, group: 'Support channels' },
+  { key: 'facebook_group', label: 'Facebook group', text: true, group: 'Support channels' },
+  { key: 'live_chat_url', label: 'Live chat embed URL', text: true, group: 'Support channels',
+    hint: 'Tawk.to, Crisp or similar. Leave blank to use the built-in ticket system only.' },
+  { key: 'support_hours', label: 'When support answers', text: true, group: 'Support channels' },
+
+  { key: 'mail_enabled', label: 'Send email', text: true, group: 'Email',
+    hint: '1 to send, 0 to hold everything. Anything queued while off is sent when you turn it on.' },
+  { key: 'mail_from', label: 'Send from address', text: true, group: 'Email',
+    hint: 'Must be an address your mail server is allowed to send as.' },
+  { key: 'mail_from_name', label: 'Send from name', text: true, group: 'Email' },
+  { key: 'smtp_host', label: 'SMTP host', text: true, group: 'Email',
+    hint: 'For example smtp.gmail.com, or smtp-relay.brevo.com.' },
+  { key: 'smtp_port', label: 'SMTP port', group: 'Email',
+    hint: '587 for STARTTLS, 465 for TLS. Both are encrypted; plain sending is refused.' },
+  { key: 'smtp_user', label: 'SMTP username', text: true, group: 'Email' },
+  { key: 'smtp_pass', label: 'SMTP password', text: true, secret: true, group: 'Email',
+    hint: 'Leave blank to keep the one already saved. For Gmail this is an app password, not your account password.' },
+  { key: 'mail_on_signup', label: 'Email on sign-up', text: true, group: 'Which emails go out', hint: '1 or 0' },
+  { key: 'mail_on_task_submitted', label: 'Email the buyer when work arrives', text: true, group: 'Which emails go out', hint: '1 or 0' },
+  { key: 'mail_on_task_decided', label: 'Email the worker on approve or reject', text: true, group: 'Which emails go out', hint: '1 or 0' },
+  { key: 'mail_on_deposit', label: 'Email on deposit', text: true, group: 'Which emails go out', hint: '1 or 0' },
+  { key: 'mail_on_withdrawal', label: 'Email on withdrawal', text: true, group: 'Which emails go out', hint: '1 or 0' },
 ];
 
 app.get('/admin/settings', need('admin'), (req, res) => {
@@ -2749,16 +3161,36 @@ app.get('/admin/settings', need('admin'), (req, res) => {
 
 <form method="post" action="/admin/settings" class="card pad">
   ${csrfField(req)}
-  <div class="form-grid">
-    ${EDITABLE.map(f => {
-      const raw = getSetting(f.key, '');
-      const shown = f.money ? (Number(raw) / 100).toFixed(2) : raw;
-      const hint = f.hint || (f.money ? 'In ' + getSetting('currency') : (f.bps ? 'Basis points: 1000 = 10%' : ''));
-      return V.field({ label: f.label, name: f.key, value: shown, hint });
-    }).join('')}
-  </div>
+  ${[...new Set(EDITABLE.map(f => f.group || 'Money and limits'))].map(group => `
+    <h2 class="set-group">${V.esc(group)}</h2>
+    <div class="form-grid">
+      ${EDITABLE.filter(f => (f.group || 'Money and limits') === group).map(f => {
+        const raw = getSetting(f.key, '');
+        const shown = f.secret ? '' : (f.money ? (Number(raw) / 100).toFixed(2) : raw);
+        const hint = f.hint || (f.money ? 'In ' + getSetting('currency') : (f.bps ? 'Basis points: 1000 = 10%' : ''));
+        return V.field({
+          label: f.label, name: f.key, value: shown, hint,
+          type: f.secret ? 'password' : 'text',
+          placeholder: f.secret && raw ? 'unchanged' : '',
+        });
+      }).join('')}
+    </div>`).join('')}
   <button class="btn" type="submit">Save settings</button>
-</form>`,
+</form>
+
+<div class="card pad">
+  <h2>Test your email settings</h2>
+  <p class="muted">Sends one message to your own address, through the settings above.
+     It tells you whether the connection and the password work before anybody
+     else finds out the hard way.</p>
+  <p class="muted">Right now mail is
+    <b>${mail.enabled() ? 'on' : 'off'}</b>${mail.enabled() ? ` via ${V.esc(mail.config().host)}:${mail.config().port}` : ''}.</p>
+  <form method="post" action="/admin/mail/test">
+    ${csrfField(req)}
+    ${V.field({ label: 'Send a test to', name: 'to', value: req.user.email, required: true })}
+    <button class="btn" type="submit">Send test email</button>
+  </form>
+</div>`,
   });
 });
 
@@ -2768,7 +3200,13 @@ app.post('/admin/settings', need('admin'), (req, res) => {
     const given = String(req.body[f.key] == null ? '' : req.body[f.key]).trim();
     let value;
 
-    if (f.text) {
+    if (f.secret) {
+      // A blank secret means "leave it alone", not "erase it". Otherwise
+      // opening the settings page and saving anything wipes the mail password,
+      // and mail stops working for a reason nobody connects to the visit.
+      if (given === '') continue;
+      value = given;
+    } else if (f.text) {
       value = given;
     } else if (f.money) {
       const units = money.parseAmount(given);
@@ -2788,6 +3226,184 @@ app.post('/admin/settings', need('admin'), (req, res) => {
   if (changed.length) audit(req.user.id, 'settings_changed', null, { changed }, req.ip);
   back(res, '/admin/settings',
     changed.length ? `Saved ${changed.length} change${changed.length === 1 ? '' : 's'}.` : 'Nothing changed.',
+    'ok');
+});
+
+// ====================================================================
+//  Mail: a test send, the outbox, and announcements to everybody
+// ====================================================================
+
+app.post('/admin/mail/test', need('admin'), async (req, res) => {
+  const to = String((req.body || {}).to || '').trim();
+  if (!to) return back(res, '/admin/settings', 'Give an address to send to.', 'fail');
+
+  const cfg = mail.config();
+  if (!cfg.host) return back(res, '/admin/settings', 'Set an SMTP host first.', 'fail');
+  if (!cfg.from) return back(res, '/admin/settings', 'Set the address to send from first.', 'fail');
+
+  // Sent directly rather than queued: the whole point is to find out now
+  // whether it works, and a queued message would only tell you a minute later.
+  try {
+    const { html, text } = mail.render({
+      heading: 'Your email settings work',
+      intro: 'This is a test from the admin settings page.',
+      lines: [`Sent through ${cfg.host} on port ${cfg.port} as ${cfg.from}.`,
+        'If you are reading this, receipts and notices will reach people too.'],
+    });
+    await smtp.send(cfg, {
+      from: cfg.from, fromName: cfg.fromName, to,
+      subject: 'Remote Work BD - test email', text, html,
+    });
+    audit(req.user.id, 'mail_test', null, { to, host: cfg.host }, req.ip);
+    back(res, '/admin/settings', `Sent to ${to}. If it does not arrive, check the spam folder.`, 'ok');
+  } catch (err) {
+    back(res, '/admin/settings', `It did not send: ${err.message}`, 'fail');
+  }
+});
+
+app.get('/admin/mail', need('admin'), (req, res) => {
+  const status = ['queued', 'sent', 'failed', 'held'].includes(req.query.status) ? req.query.status : null;
+  const rows = db.prepare(`
+    SELECT m.*, u.name AS person FROM mail_outbox m
+    LEFT JOIN users u ON u.id = m.user_id
+    ${status ? 'WHERE m.status = ?' : ''}
+    ORDER BY m.id DESC LIMIT 200
+  `).all(...(status ? [status] : []));
+
+  const counts = db.prepare(
+    'SELECT status, COUNT(*) AS n FROM mail_outbox GROUP BY status'
+  ).all().reduce((acc, r) => (acc[r.status] = r.n, acc), {});
+
+  const cfg = mail.config();
+
+  send(req, res, {
+    title: 'Email', active: 'mail', wide: true,
+    body: `
+<div class="page-head">
+  <div><h1>Email</h1>
+    <p class="muted">Everything the site has tried to send. Mail is
+      <b>${cfg.enabled ? 'on' : 'off'}</b>${cfg.enabled ? ` via ${V.esc(cfg.host)}` : ''}.</p></div>
+  <a class="btn" href="/admin/announce">Write an announcement</a>
+</div>
+
+${cfg.enabled ? '' : `<div class="alert alert-warn">
+  <b>Mail is switched off, so nothing is being sent.</b>
+  Messages are still being written down, and will go out when you turn it on in
+  <a href="/admin/settings">settings</a>. Nothing is lost in the meantime.</div>`}
+
+<div class="stat-row">
+  <a class="stat" href="/admin/mail"><b>${Object.values(counts).reduce((a, b) => a + b, 0)}</b><span>all</span></a>
+  <a class="stat ok" href="/admin/mail?status=sent"><b>${counts.sent || 0}</b><span>sent</span></a>
+  <a class="stat" href="/admin/mail?status=queued"><b>${counts.queued || 0}</b><span>waiting</span></a>
+  <a class="stat" href="/admin/mail?status=held"><b>${counts.held || 0}</b><span>held</span></a>
+  <a class="stat ${counts.failed ? 'bad' : ''}" href="/admin/mail?status=failed"><b>${counts.failed || 0}</b><span>failed</span></a>
+</div>
+
+<div class="card">
+  ${rows.length ? `<div class="table-wrap"><table>
+    <thead><tr><th>To</th><th>Subject</th><th>Kind</th><th>State</th><th>Tries</th><th>When</th></tr></thead>
+    <tbody>${rows.map(m => `<tr>
+      <td>${V.esc(m.to_email)}${m.person ? `<div class="dim">${V.esc(m.person)}</div>` : ''}</td>
+      <td>${V.esc(m.subject)}${m.last_error ? `<div class="dim">${V.esc(m.last_error)}</div>` : ''}</td>
+      <td class="dim">${V.esc(m.kind)}</td>
+      <td>${V.statusPill(m.status)}</td>
+      <td class="num">${m.attempts}</td>
+      <td class="dim">${V.ago(m.sent_at || m.created_at)}</td>
+    </tr>`).join('')}</tbody></table></div>`
+    : '<div class="pad muted">Nothing has been sent yet.</div>'}
+</div>
+
+${counts.failed ? `
+<form method="post" action="/admin/mail/retry" class="card pad">
+  ${csrfField(req)}
+  <h2>Try the failed ones again</h2>
+  <p class="muted">Puts everything that gave up back in the queue. Worth doing once
+     you have fixed whatever the error above was complaining about.</p>
+  <button class="btn" type="submit">Retry ${counts.failed} failed</button>
+</form>` : ''}`,
+  });
+});
+
+app.post('/admin/mail/retry', need('admin'), (req, res) => {
+  const r = db.prepare("UPDATE mail_outbox SET status = 'queued', attempts = 0 WHERE status = 'failed'").run();
+  audit(req.user.id, 'mail_retry', null, { requeued: r.changes }, req.ip);
+  back(res, '/admin/mail', `${r.changes} message(s) back in the queue.`, 'ok');
+});
+
+app.get('/admin/announce', need('admin'), (req, res) => {
+  const reach = db.prepare(`
+    SELECT
+      COUNT(*) AS all_users,
+      SUM(CASE WHEN role = 'worker' THEN 1 ELSE 0 END) AS workers,
+      SUM(CASE WHEN role = 'merchant' THEN 1 ELSE 0 END) AS merchants
+    FROM users
+    WHERE role != 'admin' AND email_opt_out = 0 AND status != 'banned'
+      AND email IS NOT NULL AND email != ''
+  `).get();
+
+  send(req, res, {
+    title: 'Announcement', active: 'mail',
+    body: `
+<a class="back" href="/admin/mail">&larr; Email</a>
+<h1>Write an announcement</h1>
+<p class="muted">Goes to everyone who has not turned announcements off. It is queued
+   one message per person, so nobody sees anybody else's address.</p>
+
+<form method="post" action="/admin/announce" class="card pad">
+  ${csrfField(req)}
+  ${V.field({ label: 'Subject', name: 'subject', required: true,
+    placeholder: 'Payouts will be slower this weekend' })}
+  ${V.field({ label: 'Heading inside the email', name: 'heading',
+    hint: 'Leave blank to reuse the subject.' })}
+  ${V.field({ label: 'What you want to say', name: 'body', type: 'textarea', rows: 10, required: true,
+    hint: 'A blank line starts a new paragraph. Write it as you would say it - no HTML.' })}
+  <div class="field">
+    <label for="f-aud">Who gets it</label>
+    <select id="f-aud" name="audience">
+      <option value="all">Everyone (${reach.all_users || 0} people)</option>
+      <option value="workers">Workers only (${reach.workers || 0})</option>
+      <option value="merchants">Buyers only (${reach.merchants || 0})</option>
+    </select>
+  </div>
+  <label class="check">
+    <input type="checkbox" name="sure" value="1" required>
+    <span>I have read it back and it is ready to send.</span>
+  </label>
+  <button class="btn btn-lg" type="submit">Queue the announcement</button>
+  <p class="fine">Queued, not sent instantly: they go out steadily over the next few
+     minutes so the mail server does not treat a burst as spam.</p>
+</form>`,
+  });
+});
+
+app.post('/admin/announce', need('admin'), (req, res) => {
+  const b = req.body || {};
+  const subject = String(b.subject || '').trim();
+  const body = String(b.body || '').trim();
+  if (!subject || !body) return back(res, '/admin/announce', 'Give it a subject and something to say.', 'fail');
+  if (!b.sure) return back(res, '/admin/announce', 'Tick the box once you have read it back.', 'fail');
+
+  const queued = mail.broadcast({
+    subject, body,
+    heading: String(b.heading || '').trim() || subject,
+    audience: ['all', 'workers', 'merchants'].includes(b.audience) ? b.audience : 'all',
+    adminId: req.user.id,
+  });
+
+  // Also put it in the on-site notices, so it reaches people whose mail
+  // bounces, who never open email, or who turned announcements off.
+  const audience = b.audience === 'workers' ? "AND role = 'worker'"
+    : b.audience === 'merchants' ? "AND role = 'merchant'" : '';
+  const people = db.prepare(
+    `SELECT id FROM users WHERE role != 'admin' AND status != 'banned' ${audience}`
+  ).all();
+  const notice = db.prepare(
+    "INSERT INTO notices (user_id, kind, title, body) VALUES (?, 'announcement', ?, ?)"
+  );
+  for (const person of people) notice.run(person.id, subject, body);
+
+  back(res, '/admin/mail',
+    `Queued for ${queued} inbox${queued === 1 ? '' : 'es'}, and shown on site to ${people.length}.`,
     'ok');
 });
 
@@ -3175,12 +3791,62 @@ app.get('/account', need(), (req, res) => {
     <h2>You</h2>
     <dl class="kv">
       <dt>Name</dt><dd>${V.esc(u.name)}</dd>
-      <dt>Email</dt><dd>${V.esc(u.email)}</dd>
-      <dt>Signed in with</dt><dd>Google${u.google_sub ? '' : ' (not yet linked)'}</dd>
+      <dt>Email</dt><dd>${V.esc(u.email)}
+        ${u.email_verified
+          ? '<span class="pill s-approved">confirmed</span>'
+          : '<span class="pill s-submitted">not confirmed</span>'}</dd>
+      ${u.username ? `<dt>Username</dt><dd>${V.esc(u.username)}</dd>` : ''}
+      <dt>Signs in with</dt><dd>${[
+        u.google_sub ? 'Google' : null,
+        u.password_hash ? 'a password' : null,
+      ].filter(Boolean).join(' and ') || 'Google'}</dd>
       <dt>Account type</dt><dd><b>${u.role === 'merchant' ? 'Buyer - you hire' : u.role === 'admin' ? 'Admin' : 'Worker - you do tasks'}</b></dd>
       <dt>Joined</dt><dd>${V.ago(u.created_at)}</dd>
       <dt>Balance</dt><dd>${V.money(money.balance(u.id))}</dd>
     </dl>
+  </div>
+
+  <div class="card pad">
+    <h2>Sign-in and security</h2>
+
+    ${u.email_verified ? '' : `
+      <div class="alert alert-warn">
+        <b>Your email address is not confirmed yet.</b>
+        You can look around, but taking work and withdrawing are closed until it is.
+        That is what keeps one person from running a row of accounts.
+        <form method="post" action="/resend-verification" class="inline-form">
+          ${csrfField(req)}
+          <button class="btn btn-sm" type="submit">Send the link again</button>
+        </form>
+      </div>`}
+
+    <form method="post" action="/account/password" class="stack">
+      ${csrfField(req)}
+      <h3>${u.password_hash ? 'Change your password' : 'Add a password'}</h3>
+      <p class="muted">${u.password_hash
+        ? 'Changing it signs out everything else that is signed in as you.'
+        : 'Your account signs in with Google. Adding a password gives you a second way in - Google keeps working either way.'}</p>
+      ${u.password_hash ? V.field({ label: 'Current password', name: 'current', type: 'password', required: true }) : ''}
+      ${V.field({ label: 'New password', name: 'password', type: 'password', required: true,
+        hint: 'At least 8 characters. Length matters more than punctuation.' })}
+      ${V.field({ label: 'Confirm it', name: 'password2', type: 'password', required: true })}
+      ${u.password_hash ? '' : V.field({ label: 'Pick a username', name: 'username',
+        hint: 'Optional. Letters, numbers, dot or underscore - you can sign in with it instead of your email.' })}
+      <button class="btn" type="submit">${u.password_hash ? 'Change password' : 'Set password'}</button>
+    </form>
+
+    <form method="post" action="/account/email-prefs" class="stack border-top">
+      ${csrfField(req)}
+      <h3>Email</h3>
+      <label class="check">
+        <input type="checkbox" name="updates" value="1"${u.email_opt_out ? '' : ' checked'}>
+        <span>Send me announcements and news from Remote Work BD</span>
+      </label>
+      <p class="fine">Messages about your own money and your account security are sent
+         whatever you choose here. A receipt for a payment is not something we can decide
+         to withhold.</p>
+      <button class="btn btn-ghost btn-sm" type="submit">Save</button>
+    </form>
   </div>
 
   ${u.role === 'admin' ? '' : `
@@ -3240,6 +3906,64 @@ ${past.length ? `<div class="card">
     not yours, <a href="/support">tell support</a>.</p></div>
 </div>`,
   });
+});
+
+/* Set or change the password on an account.
+
+   Two different situations behind one form: a Google account adding a
+   password for the first time, and a password account changing one. The
+   difference that matters is that changing an existing password has to prove
+   you know the old one - otherwise a borrowed, still-signed-in browser is
+   enough to take the account for good.
+*/
+app.post('/account/password', need(), (req, res) => {
+  const b = req.body || {};
+  const u = req.user;
+
+  if (String(b.password || '') !== String(b.password2 || '')) {
+    return back(res, '/account', 'The two passwords are not the same.', 'fail');
+  }
+
+  if (u.password_hash) {
+    if (!passwords.verify(String(b.current || ''), u.password_hash)) {
+      return back(res, '/account', 'That is not your current password.', 'fail');
+    }
+  } else if (b.username) {
+    // Only offered while the account has no username yet.
+    const problem = passwords.problemWithUsername(b.username);
+    if (problem) return back(res, '/account', problem, 'fail');
+    const taken = db.prepare('SELECT id FROM users WHERE lower(username) = ? AND id != ?')
+      .get(String(b.username).toLowerCase(), u.id);
+    if (taken) return back(res, '/account', 'That username is taken. Please pick another.', 'fail');
+    db.prepare('UPDATE users SET username = ? WHERE id = ?').run(String(b.username).trim(), u.id);
+  }
+
+  try {
+    auth.setPassword(u.id, b.password, u);
+  } catch (err) {
+    return back(res, '/account', err.message, 'fail');
+  }
+
+  mail.passwordChanged(u);
+
+  // setPassword ends every session, including this one, so sign them straight
+  // back in rather than dumping them at the login page for doing the right thing.
+  const session = auth.startSession(u.id);
+  res.setHeader('Set-Cookie',
+    `wrj_session=${session.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${session.maxAge}`);
+  back(res, '/account',
+    u.password_hash
+      ? 'Password changed. Anything else signed in as you has been signed out.'
+      : 'Password set. You can now sign in with it as well as with Google.',
+    'ok');
+});
+
+app.post('/account/email-prefs', need(), (req, res) => {
+  const wants = !!(req.body || {}).updates;
+  db.prepare('UPDATE users SET email_opt_out = ? WHERE id = ?').run(wants ? 0 : 1, req.user.id);
+  back(res, '/account',
+    wants ? 'You will get announcements from us.' : 'You will not get announcements any more.',
+    'ok');
 });
 
 app.post('/account/role', need(), (req, res) => {
@@ -3596,16 +4320,55 @@ ${paid.length ? `
 // ======================================================================
 // SUPPORT
 // ======================================================================
-function telegramLinks() {
-  const channel = getSetting('telegram_channel', '');
-  const support = getSetting('telegram_support', '');
-  if (!channel && !support) return '';
-  return `<div class="tg-row">
-    ${channel ? `<a class="tg" href="${V.esc(channel)}" target="_blank" rel="noopener">
-      <b>Telegram channel</b><span>Announcements and new jobs</span></a>` : ''}
-    ${support ? `<a class="tg" href="${V.esc(support)}" target="_blank" rel="noopener">
-      <b>Telegram support</b><span>Message us directly</span></a>` : ''}
+/* Every way of reaching us that has actually been filled in.
+
+   Each one is hidden while its setting is blank. A support page listing a
+   WhatsApp number nobody answers, or a Telegram link that 404s, is worse than
+   a page that simply does not mention it - people try it, get nothing back,
+   and conclude the whole site is abandoned.
+*/
+function supportChannels() {
+  const wa = String(getSetting('whatsapp_number', '')).replace(/[^0-9]/g, '');
+  const waText = encodeURIComponent(getSetting('whatsapp_text', ''));
+
+  const channels = [
+    { href: getSetting('telegram_channel', ''), name: 'Telegram channel',
+      note: 'Announcements and new jobs', icon: 'send' },
+    { href: getSetting('telegram_support', ''), name: 'Telegram support',
+      note: 'Message us directly', icon: 'send' },
+    { href: getSetting('telegram_group', ''), name: 'Telegram group',
+      note: 'Ask other members', icon: 'users' },
+    { href: wa ? `https://wa.me/${wa}${waText ? '?text=' + waText : ''}` : '',
+      name: 'WhatsApp', note: 'Chat with support', icon: 'phone' },
+    { href: getSetting('facebook_page', ''), name: 'Facebook page',
+      note: 'News and updates', icon: 'globe' },
+    { href: getSetting('facebook_group', ''), name: 'Facebook group',
+      note: 'The community', icon: 'users' },
+  ].filter(c => c.href);
+
+  if (!channels.length) return '';
+
+  const hours = getSetting('support_hours', '');
+  return `<div class="chan-wrap">
+    <div class="chan-row">
+      ${channels.map(c => `<a class="chan" href="${V.esc(c.href)}" target="_blank" rel="noopener">
+        <b>${V.esc(c.name)}</b><span>${V.esc(c.note)}</span></a>`).join('')}
+    </div>
+    ${hours ? `<p class="fine">Support answers ${V.esc(hours)}. A ticket here is always
+       read, whatever the hour.</p>` : ''}
   </div>`;
+}
+
+/* An external live-chat widget, if one is configured.
+
+   Loaded only where it is wanted and only when a URL is set, so the site has
+   no third-party script on it by default - which is what the privacy page
+   promises.
+*/
+function liveChat() {
+  const url = String(getSetting('live_chat_url', '')).trim();
+  if (!/^https:\/\//.test(url)) return '';
+  return `<script async src="${V.esc(url)}" crossorigin="anonymous"></script>`;
 }
 
 app.get('/support', need(), (req, res) => {
@@ -3617,9 +4380,11 @@ app.get('/support', need(), (req, res) => {
     title: 'Support', active: 'support',
     body: `
 <div class="page-head"><div><h1>Support</h1>
-  <p class="muted">Replies land right here, and we usually answer within a day.</p></div></div>
+  <p class="muted">Replies land right here, and we usually answer within a day.
+     Or reach us wherever suits you better.</p></div></div>
 
-${telegramLinks()}
+${supportChannels()}
+${liveChat()}
 
 <div class="two">
   <div class="card pad">
@@ -3905,11 +4670,19 @@ setInterval(() => {
   try {
     spam.releaseExpiredHolds();
     auth.sweepSessions();
+    auth.sweepTokens();
     // The review deadline. Also run on boot below, because a server that was
     // down for a day must not swallow the deadlines it was meant to enforce.
     const paid = quality.releaseOverdue();
     if (paid) console.log(`  auto-approved ${paid} submission(s) past their review deadline`);
   } catch (e) { console.error(e.message); }
+
+  // Mail is swept separately and never awaited by a request. A slow or
+  // rate-limiting mail server should make mail late, not make the site slow.
+  mail.flush().then(r => {
+    if (r.sent) console.log(`  sent ${r.sent} email(s)`);
+    if (r.failed) console.log(`  ${r.failed} email(s) could not be sent - see /admin/mail`);
+  }).catch(e => console.error('mail sweep:', e.message));
 }, 60000).unref();
 
 const server = app.listen(PORT, HOST, () => {
@@ -3924,7 +4697,9 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`  http://localhost:${PORT}`);
   console.log('');
   console.log(`  data      ${DATA_DIR}`);
-  console.log(`  sign-in   ${google.configured() ? 'Google' : 'NOT CONFIGURED - nobody can sign in'}`);
+  console.log(`  sign-in   ${google.configured() ? 'Google + password' : 'password only (Google not configured)'}`);
+  const mailCfg = mail.config();
+  console.log(`  mail      ${mailCfg.enabled ? `on, via ${mailCfg.host}:${mailCfg.port} as ${mailCfg.from}` : 'off - nothing will be sent'}`);
   console.log(`  admins    ${auth.adminEmails().join(', ') || 'none - set ADMIN_EMAILS'}`);
   console.log(`  payments  EPS ${on(eps.configured())}, Cryptomus ${on(cryptomus.configured())}`);
   if (process.env.ALLOW_DEV_LOGIN === '1') {

@@ -88,6 +88,7 @@ function navItems(user) {
       { href: '/admin/roles', label: 'Roles', key: 'roles' },
       { href: '/admin/connections', label: 'Connections', key: 'connections' },
       { href: '/admin/gateway', label: 'Gateway', key: 'gateway' },
+      { href: '/admin/mail', label: 'Email', key: 'mail' },
       { href: '/admin/settings', label: 'Settings', key: 'settings' },
     ];
   }
@@ -178,7 +179,7 @@ function tabbar(user, active) {
   </nav>`;
 }
 
-function layout({ title, user, active, body, flash, wide, notices, csrf }) {
+function layout({ title, user, active, body, flash, wide, notices, csrf, bare }) {
   const bal = user ? money.balance(user.id) : 0;
   return `<!DOCTYPE html>
 <html lang="en">
@@ -193,23 +194,23 @@ function layout({ title, user, active, body, flash, wide, notices, csrf }) {
 </head>
 <body>
 
-<header class="top">
+<header class="top${bare ? ' top-bare' : ''}">
   <div class="wrap top-inner">
     <a href="/" class="brand">
       ${logoMark()}
       <span class="brand-name">Remote Work <b>BD</b></span>
     </a>
-    <nav class="nav">${deskNav(user, active)}</nav>
-    <div class="head-mobile">
+    ${bare ? '' : `<nav class="nav">${deskNav(user, active)}</nav>`}
+    ${bare ? '' : `<div class="head-mobile">
       ${user ? `<a class="head-bal" href="/wallet">${esc(money.fmt(bal))}</a>` : ''}
       <button type="button" class="burger" id="burger" aria-label="Open menu" aria-expanded="false">
         <span></span><span></span><span></span>
       </button>
-    </div>
+    </div>`}
   </div>
 </header>
 
-${drawer(user, active)}
+${bare ? '' : drawer(user, active)}
 
 ${user && user.status === 'suspended' ? `
 <div class="wrap"><div class="alert alert-stop">

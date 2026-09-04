@@ -893,3 +893,122 @@ body.drawer-open { overflow: hidden; }
 @media (max-width: 620px) {
   .level-card .right-note { text-align: left; max-width: none; }
 }
+
+/* =========================================================== sign in / up */
+
+/* Two columns: what this is on the left, the form on the right. On a phone
+   the form comes first - somebody who tapped "sign in" wants the fields, not
+   the sales pitch, so the reasoning moves below it. */
+.auth-split {
+  display: grid; gap: 40px; align-items: center;
+  grid-template-columns: 1fr 1fr;
+  max-width: 1120px; margin: 0 auto; padding: 40px 0 56px;
+}
+.auth-split.one { grid-template-columns: minmax(0, 460px); justify-content: center; }
+
+.auth-tell .eyebrow {
+  display: inline-block; background: var(--green-bg); color: var(--green-dk);
+  font-size: 12.5px; font-weight: 600; padding: 5px 13px; border-radius: 20px;
+}
+.auth-tell h1 {
+  font-family: var(--head); font-size: 40px; line-height: 1.14;
+  margin: 16px 0 14px; letter-spacing: -0.5px;
+}
+.auth-tell h1 b { color: var(--green); font-weight: 700; }
+.auth-tell > p { color: var(--muted); font-size: 15.5px; line-height: 1.7; margin: 0 0 22px; max-width: 46ch; }
+
+.auth-points { list-style: none; margin: 0 0 26px; padding: 0; display: grid; gap: 12px; }
+.auth-points li {
+  position: relative; padding-left: 30px; font-size: 14.5px; color: var(--ink-2);
+}
+/* A tick drawn in CSS rather than an icon font or an inline SVG per row. */
+.auth-points li::before {
+  content: ''; position: absolute; left: 0; top: 2px;
+  width: 18px; height: 18px; border-radius: 50%; background: var(--green);
+}
+.auth-points li::after {
+  content: ''; position: absolute; left: 6px; top: 6px;
+  width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.auth-note {
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px;
+}
+.auth-note b { display: block; font-family: var(--head); font-size: 15px; margin-bottom: 6px; }
+.auth-note p { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.65; }
+
+.auth-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+  padding: 30px 30px 26px; box-shadow: 0 8px 30px rgba(20, 24, 28, .06);
+}
+.auth-card h2 { font-family: var(--head); font-size: 23px; margin: 0 0 6px; text-align: center; }
+.auth-card .sub { color: var(--muted); font-size: 13.5px; text-align: center; margin: 0 0 20px; }
+
+.or { display: flex; align-items: center; gap: 12px; margin: 18px 0; color: var(--muted); font-size: 12.5px; }
+.or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+.auth-fields { display: block; }
+.auth-fields label {
+  display: block; font-size: 13.5px; font-weight: 600; color: var(--ink);
+  margin: 14px 0 6px;
+}
+.auth-fields label em { font-weight: 400; font-style: normal; color: var(--muted); }
+.auth-fields input[type=text], .auth-fields input[type=email],
+.auth-fields input[type=password], .auth-fields input:not([type]), .auth-fields select {
+  width: 100%; padding: 11px 13px; font: inherit; font-size: 14.5px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink);
+}
+.auth-fields input:focus, .auth-fields select:focus {
+  outline: none; border-color: var(--green); box-shadow: 0 0 0 3px var(--green-bg);
+}
+.auth-fields .btn { margin-top: 20px; }
+
+.auth-row { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 13px; }
+.auth-row a { color: var(--green-dk); }
+
+label.check { display: flex; gap: 9px; align-items: flex-start; margin: 18px 0 0; font-weight: 400; }
+label.check input { width: auto; margin-top: 2px; flex: none; }
+label.check span { font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+
+.swap { text-align: center; margin: 16px 0 0; font-size: 13.5px; color: var(--muted); }
+.swap a { color: var(--green-dk); font-weight: 600; }
+.auth-card .fine { text-align: center; margin-top: 14px; }
+
+.btn-block { width: 100%; display: block; }
+.top-bare .top-inner { justify-content: center; }
+
+@media (max-width: 900px) {
+  .auth-split { grid-template-columns: 1fr; gap: 28px; padding: 24px 0 40px; }
+  /* Form first on a phone: the fields are what was asked for. */
+  .auth-form { order: -1; }
+  .auth-tell h1 { font-size: 29px; }
+  .auth-card { padding: 24px 20px 22px; }
+}
+
+/* ------------------------------------------------------- support channels */
+.chan-wrap { margin-bottom: 22px; }
+.chan-row {
+  display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+.chan {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 13px 16px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--card); text-decoration: none; color: var(--ink);
+}
+.chan:hover { border-color: var(--green); background: var(--green-bg); }
+.chan b { font-family: var(--head); font-size: 14.5px; }
+.chan span { color: var(--muted); font-size: 12.5px; }
+
+/* --------------------------------------------------------- admin settings */
+.set-group {
+  font-family: var(--head); font-size: 16px; margin: 26px 0 4px;
+  padding-top: 18px; border-top: 1px solid var(--line);
+}
+.set-group:first-of-type { margin-top: 0; padding-top: 0; border-top: 0; }
+
+.stack { display: block; }
+.stack h3 { font-family: var(--head); font-size: 15.5px; margin: 0 0 4px; }
+.stack.border-top { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
+.inline-form { display: inline-block; margin-top: 10px; }

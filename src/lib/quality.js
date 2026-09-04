@@ -176,6 +176,8 @@ function releaseOverdue() {
       db.exec('COMMIT');
       audit(null, 'auto_approved', `submission:${sub.id}`,
         { job: job.id, ttr: job.ttr_days, net: result.net });
+      // Required late: mail reaches for money, and money would reach back here.
+      require('./mail').taskApproved(sub, job, result.net, true);
       paid++;
     } catch (err) {
       db.exec('ROLLBACK');

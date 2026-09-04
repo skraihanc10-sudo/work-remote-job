@@ -12,6 +12,7 @@
 const { db, audit } = require('./lib/db');
 const auth = require('./lib/auth');
 const money = require('./lib/money');
+const passwords = require('./lib/passwords');
 
 const admins = auth.adminEmails();
 
@@ -189,21 +190,29 @@ if (!db.prepare('SELECT COUNT(*) AS n FROM testimonials').get().n) {
 
 // -------------------------------------------------------------------- demo
 if (process.argv.includes('--demo')) {
-  // Demo accounts have no google_sub, so they can never be signed into. They
-  // exist to make the screens show something real.
-  function demoUser(role, name, email, country) {
+  /* Demo accounts, with a known password so the whole site can be walked
+     without Google and without /dev-login.
+
+     The password is deliberately the same obvious string for all of them and
+     is printed below: these accounts only ever exist in a database you seeded
+     yourself with --demo, and anyone who can run the seed already has the
+     database. What would be dangerous is a real deployment carrying them, so
+     the seed says so out loud at the end. */
+  const DEMO_PASSWORD = 'demo-password-123';
+
+  function demoUser(role, name, email, username, country) {
     const found = db.prepare('SELECT id FROM users WHERE lower(email) = ?').get(email);
     if (found) return found.id;
     const info = db.prepare(`
-      INSERT INTO users (role, name, email, password_hash, country, email_verified)
-      VALUES (?, ?, ?, '', ?, 1)
-    `).run(role, name, email, country || null);
+      INSERT INTO users (role, name, email, username, password_hash, country, email_verified)
+      VALUES (?, ?, ?, ?, ?, ?, 1)
+    `).run(role, name, email, username, passwords.hash(DEMO_PASSWORD), country || null);
     return Number(info.lastInsertRowid);
   }
 
-  const merchant = demoUser('merchant', 'Demo Buyer', 'buyer@example.com', 'Bangladesh');
-  demoUser('worker', 'Rakib Hasan', 'rakib@example.com', 'Bangladesh');
-  demoUser('worker', 'Nusrat Jahan', 'nusrat@example.com', 'Bangladesh');
+  const merchant = demoUser('merchant', 'Demo Buyer', 'buyer@example.com', 'demobuyer', 'Bangladesh');
+  demoUser('worker', 'Rakib Hasan', 'rakib@example.com', 'rakib_bd', 'Bangladesh');
+  demoUser('worker', 'Nusrat Jahan', 'nusrat@example.com', 'nusrat_bd', 'Bangladesh');
 
   if (money.balance(merchant) === 0) {
     money.entry(merchant, 'deposit', 500000, null, 'Demo funds');
@@ -252,8 +261,15 @@ if (process.argv.includes('--demo')) {
 
   console.log(`
   Demo data ready - three funded jobs and a buyer to review them.
-  These accounts have no Google identity, so they cannot be signed into;
-  they are there so the job list and dashboards are not empty.`);
+
+  Sign in as any of these with the password  ${DEMO_PASSWORD}
+
+    demobuyer   buyer@example.com    posts and reviews work
+    rakib_bd    rakib@example.com    does tasks
+    nusrat_bd   nusrat@example.com   does tasks
+
+  These are seeded accounts with a published password. Never run --demo
+  against a live database, and delete them before the site is public.`);
 }
 
 console.log('\n  Run:  npm start\n');

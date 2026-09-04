@@ -418,6 +418,79 @@ const MIGRATIONS = [
       );
     `,
   },
+  {
+    id: 7,
+    name: 'password sign-in, email verification, mail outbox',
+    sql: `
+      -- Sign-in by username as well as email. Kept separate from the display
+      -- name: a name can be anything and change freely, a username is the
+      -- handle you log in with and must be unique.
+      ALTER TABLE users ADD COLUMN username TEXT;
+      CREATE UNIQUE INDEX idx_user_username ON users(lower(username))
+        WHERE username IS NOT NULL;
+
+      -- Whether we may send this person anything beyond the essentials.
+      -- Receipts and security mail ignore it; announcements do not.
+      ALTER TABLE users ADD COLUMN email_opt_out INTEGER NOT NULL DEFAULT 0;
+
+      /* One-time links: confirm an address, or reset a password.
+
+         Stored as a hash, never the token itself. If this table leaks, the
+         rows in it cannot be used to take an account over - which is the
+         whole point, because a reset token is a password while it lives.
+      */
+      CREATE TABLE email_tokens (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        kind       TEXT NOT NULL,          -- 'verify' | 'reset'
+        token_hash TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        used_at    TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE UNIQUE INDEX idx_token_hash ON email_tokens(token_hash);
+      CREATE INDEX idx_token_user ON email_tokens(user_id, kind);
+
+      /* Every message we send, queued before it is sent.
+
+         Mail goes in here inside the same transaction as the thing it is
+         about, and a separate sweep delivers it. That ordering matters: a
+         mail server being slow or down must never roll back a payment, and a
+         payment that committed must never lose its receipt.
+      */
+      CREATE TABLE mail_outbox (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        to_email     TEXT NOT NULL,
+        subject      TEXT NOT NULL,
+        body         TEXT NOT NULL,
+        kind         TEXT NOT NULL,
+        status       TEXT NOT NULL DEFAULT 'queued',   -- queued|sent|failed
+        attempts     INTEGER NOT NULL DEFAULT 0,
+        last_error   TEXT,
+        created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+        sent_at      TEXT
+      );
+      CREATE INDEX idx_mail_queued ON mail_outbox(status, id);
+      CREATE INDEX idx_mail_user ON mail_outbox(user_id, id DESC);
+
+      /* Failed sign-ins, so a password can be rate limited.
+
+         Google sign-in needed nothing like this because there was no secret
+         here to guess. A password changes that: without a limit, an account
+         with a weak password is taken in an afternoon.
+      */
+      CREATE TABLE login_attempts (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        identifier TEXT NOT NULL,
+        ip         TEXT,
+        ok         INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_attempt_id ON login_attempts(identifier, created_at);
+      CREATE INDEX idx_attempt_ip ON login_attempts(ip, created_at);
+    `,
+  },
 ];
 
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (
@@ -481,6 +554,33 @@ const DEFAULTS = {
   level3_tasks: '100',
   level4_tasks: '400',
   level_min_rate: '80',
+
+  // Where support actually happens. Every one of these is optional and is
+  // hidden everywhere on the site until it is filled in, so a half-configured
+  // install never shows a dead link.
+  whatsapp_number: '',
+  whatsapp_text: 'Hello, I need help with my Remote Work BD account.',
+  facebook_page: '',
+  facebook_group: '',
+  telegram_group: '',
+  live_chat_url: '',
+  support_hours: '10:00 - 22:00, seven days a week (Dhaka time)',
+
+  // Outgoing mail. Left off until it is configured, because a site that
+  // silently fails to send is worse than one that says it cannot.
+  mail_enabled: '0',
+  mail_from_name: 'Remote Work BD',
+  mail_from: '',
+  smtp_host: '',
+  smtp_port: '587',
+  smtp_user: '',
+  smtp_pass: '',
+  // Which non-essential mail goes out. Receipts and security mail always do.
+  mail_on_signup: '1',
+  mail_on_task_submitted: '1',
+  mail_on_task_decided: '1',
+  mail_on_deposit: '1',
+  mail_on_withdrawal: '1',
 };
 
 function getSetting(key, fallback = null) {

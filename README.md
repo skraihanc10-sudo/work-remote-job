@@ -40,12 +40,77 @@ Google works.
 The boot banner tells you what is on:
 
 ```
-  data      D:each\work-remote-job\data
-  sign-in   NOT CONFIGURED - nobody can sign in
+  data      D:\beach\work-remote-job\data
+  sign-in   Google + password
+  mail      off - nothing will be sent
   admins    you@gmail.com
   payments  EPS off, Cryptomus off
   dev login ENABLED
 ```
+
+## Signing in
+
+Two ways in, and one person can use either on the same account.
+
+**Google** is the one to push. Anybody can invent a name and an email address,
+but a crowd of Google accounts costs real effort, and that effort is what stops
+one person farming a job with twenty identities.
+
+**Email or username with a password** exists because not everyone has a Google
+account or wants to use one. Those accounts are fenced in return:
+
+- the address must be confirmed by a link before the account can take work or
+  withdraw, which puts a working inbox behind every account;
+- failed sign-ins are rate limited, per account and per connection;
+- passwords are stored as scrypt hashes with a per-password salt, never in a
+  form anybody can read back.
+
+Somebody who signed up with Google can add a password later on their account
+page and keep using either.
+
+## Email
+
+Off until it is configured, because a site that silently fails to send is worse
+than one that says plainly it cannot. Nothing is lost in the meantime: messages
+are still written into the outbox, and go out when it is switched on.
+
+Set it up in **Admin > Settings > Email**, or in `.env` - the environment wins,
+because a password belongs there rather than in the database. Then use **Send
+test email** on the same page, which tells you whether the connection and the
+password work before anybody else finds out the hard way.
+
+| Provider | Host | Port |
+| --- | --- | --- |
+| Gmail | `smtp.gmail.com` | 587, with an App Password |
+| Brevo | `smtp-relay.brevo.com` | 587 |
+
+Gmail needs an App Password, which needs 2-step verification switched on first;
+your ordinary password is refused. Port 587 upgrades to TLS with STARTTLS, 465
+is TLS from the first byte - both encrypted, and sending in the clear is refused
+either way.
+
+What goes out: a welcome and a confirmation link on sign-up, a reset link, a
+notice when a password changes, a nudge to the buyer when work arrives, the
+verdict to the worker, receipts for deposits and withdrawals, and announcements
+you write at **Admin > Email > Write an announcement**. Which of the optional
+ones are sent is a setting. Receipts and security mail always go, whatever
+somebody's preference - a receipt is not ours to withhold.
+
+**Admin > Email** lists everything the site has tried to send, the error on
+anything that failed, and a button to try those again.
+
+## Support channels
+
+**Admin > Settings > Support channels** takes a Telegram channel, a Telegram
+support chat, a Telegram group, a WhatsApp number, a Facebook page and group, a
+live-chat embed URL, and the hours you answer. Each is hidden everywhere on the
+site until it is filled in, so a half-configured install never shows a dead
+link. The built-in ticket system works regardless, and is the only one that can
+see somebody's tasks and payments beside their message.
+
+The WhatsApp field takes the number alone in international format
+(`8801XXXXXXXXX`) - the link is built for you.
+
 
 ---
 
