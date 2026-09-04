@@ -1108,3 +1108,5 @@ td.warn-t, .warn-t { color: var(--amber); font-weight: 600; }
 .adminbar-in a:hover { color: var(--ink); }
 .adminbar-in a.on { color: var(--navy); font-weight: 600; border-bottom-color: var(--green); background: var(--card); }
 @media (max-width: 900px) { .adminbar { display: none; } }
+td.nowrap { white-space: nowrap; }
+td.nowrap .link + .link { margin-left: 12px; }

@@ -3210,7 +3210,9 @@ app.get('/admin/users', need('admin'), (req, res) => {
       ? '<span class="pill s-approved">confirmed</span>'
       : '<span class="pill s-submitted">unconfirmed</span>'}</td>
     <td>${V.statusPill(u.status)}${u.suspend_reason ? `<div class="dim clip">${V.esc(u.suspend_reason)}</div>` : ''}</td>
-    <td class="right"><a class="link" href="/admin/users/${u.id}">Open</a></td>
+    <td class="right nowrap">
+      ${u.role === 'admin' ? '' : `<a class="link" href="/admin/users/${u.id}#balance">Add funds</a>`}
+      <a class="link" href="/admin/users/${u.id}">Open</a></td>
   </tr>`).join('') : '<tr><td colspan="8" class="pad muted">Nobody matches that.</td></tr>'}</tbody>
 </table></div></div>`,
   });
@@ -3374,7 +3376,7 @@ ${asMerchant.jobs ? `<div class="stat-row">
 </div>`;
   })()}
 
-  <div class="card-head"><h2>Adjust balance</h2></div>
+  <div class="card-head" id="balance"><h2>Adjust balance</h2></div>
   <div class="pad">
     <p class="muted">Adds or removes money by hand. It appears in their wallet history
        like anything else, they are told the reason, and it is written to the audit log
