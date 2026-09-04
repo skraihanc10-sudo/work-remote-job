@@ -49,6 +49,112 @@ if (!admins.length) {
   console.log('  They become usable the moment that Google address signs in.');
 }
 
+// -------------------------------------------------------------- templates
+// Vague instructions cause most rejections, so the fastest way to reduce them
+// is to stop handing buyers a blank box. Each of these is a complete, workable
+// job someone can edit rather than invent.
+if (!db.prepare('SELECT COUNT(*) AS n FROM job_templates').get().n) {
+  const cat = slug => {
+    const row = db.prepare('SELECT id FROM categories WHERE slug = ?').get(slug);
+    return row ? row.id : null;
+  };
+  const rows = [
+    ['sign-up', 'Sign up and confirm email', 'Sign up on our site and confirm your email',
+`1. Open the link below in a normal browser window (not incognito).
+2. Register using a real email address you can open.
+3. Open the confirmation email and click the link inside it.
+4. Do not delete the account for at least 30 days.
+
+LINK: (paste your link here)`,
+`Send us:
+- the username or email you registered with
+- a screenshot of the page you saw after confirming`, 120],
+
+    ['app-install', 'App install and open', 'Install our app and open it once',
+`1. Open the Play Store link below on a real Android phone.
+2. Install the app.
+3. Open it and wait until the first screen has fully loaded.
+4. Keep it installed for at least 48 hours - we check.
+
+LINK: (paste your Play Store link here)`,
+`Send us:
+- a screenshot of the app open on your phone
+- the email or username you used inside the app, if it asked for one`, 180],
+
+    ['youtube', 'Watch, like and comment', 'Watch a video for 2 minutes and leave a comment',
+`1. Open the video link below.
+2. Watch at least 2 minutes without skipping.
+3. Like the video.
+4. Leave a comment in your own words about something you actually saw in it.
+
+Do not copy another comment. Do not write only emojis or "nice video" - those
+will be rejected.
+
+LINK: (paste your video link here)`,
+`Send us:
+- your YouTube channel name
+- the exact comment you left`, 150],
+
+    ['social-media', 'Follow a page', 'Follow our page and screenshot it',
+`1. Open the page link below.
+2. Follow the page from your own account, which must be older than 3 months.
+3. Do not unfollow for at least 30 days.
+
+LINK: (paste your page link here)`,
+`Send us:
+- your profile name
+- a screenshot showing the page with Following turned on`, 90],
+
+    ['search-click', 'Search, find and click', 'Search a keyword, find our site and click it',
+`1. Open Google in a normal browser window.
+2. Search for exactly: (paste your keyword here)
+3. Find our result on the first or second page - it is (paste your domain here)
+4. Click it and stay on the site for at least 60 seconds. Open two more pages.
+
+Do not go to the site directly. It has to come from the search.`,
+`Send us:
+- a screenshot of the search results with our result visible
+- which page of results you found it on`, 180],
+
+    ['review-rating', 'Write an honest review', 'Leave an honest review of our product',
+`1. Open the link below.
+2. Write a review in your own words, 2 to 3 sentences.
+3. Say something specific - a made-up review that could be about anything will
+   be rejected, and we would rather have a real 4 star than a fake 5.
+
+LINK: (paste your link here)`,
+`Send us:
+- the name shown on your review
+- a screenshot of your review published on the page`, 240],
+
+    ['survey', 'Short survey', 'Answer a short survey - about 3 minutes',
+`1. Open the form link below.
+2. Answer every question honestly. There are no right answers.
+3. Submit the form and note the confirmation code it shows you.
+
+LINK: (paste your form link here)`,
+`Send us:
+- the confirmation code from the last page`, 180],
+
+    ['data-entry', 'Collect and enter data', 'Find 10 business listings and enter the details',
+`1. Open the spreadsheet link below.
+2. Search for (paste what to search for here) in your own city.
+3. Add 10 rows: business name, phone, address, website.
+4. Only add real listings you can see. Do not invent rows.
+
+LINK: (paste your spreadsheet link here)`,
+`Send us:
+- the city you searched
+- the row numbers you filled in`, 600],
+  ];
+
+  const insert = db.prepare(`INSERT INTO job_templates
+    (category_id, name, title, instructions, proof, min_seconds, sort)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`);
+  rows.forEach((r, i) => insert.run(cat(r[0]), r[1], r[2], r[3], r[4], r[5], i));
+  console.log('  Added ' + rows.length + ' job templates buyers can start from.');
+}
+
 // ------------------------------------------------------------ testimonials
 // Marked is_demo, and the home page says so while any of them are. Swap them
 // for real ones from the admin side as they arrive; showing invented praise as

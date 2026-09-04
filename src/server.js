@@ -22,6 +22,7 @@ const google = require('./lib/google');
 const eps = require('./lib/payments/eps');
 const cryptomus = require('./lib/payments/cryptomus');
 const referrals = require('./lib/referrals');
+const quality = require('./lib/quality');
 const money = require('./lib/money');
 const spam = require('./lib/antispam');
 const V = require('./lib/views');
@@ -1344,6 +1345,7 @@ app.get('/worker', need('worker'), (req, res) => {
        AND status IN ('started','submitted','approved')`
   ).get(u.id, spam.todayStart()).n;
   const cap = numSetting('max_tasks_per_day');
+  const st = quality.workerStanding(u.id);
 
   send(req, res, {
     title: 'Dashboard', active: 'dash',
@@ -1351,6 +1353,20 @@ app.get('/worker', need('worker'), (req, res) => {
 <div class="page-head"><div><h1>Hello, ${V.esc(u.name)}</h1>
   <p class="muted">${today} of ${cap} tasks used today. Resets at midnight UTC.</p></div>
   <a class="btn" href="/jobs">Find work</a></div>
+
+<div class="card pad level-card">
+  <div>
+    <span class="pill lvl">${V.esc(st.name)}</span>
+    <b>${st.note}</b>
+    <div class="dim">${st.rate === null
+      ? 'Your level rises as buyers approve your work. Nothing decided yet.'
+      : `${st.rate}% of your ${st.decided} decided tasks were approved.`}</div>
+  </div>
+  ${st.next ? `<div class="dim right-note">
+    ${Math.max(0, st.next.tasks - st.approved)} more approved tasks at ${st.next.minRate}%
+    or better reaches <b>${st.next.name}</b>, which opens jobs closed to lower levels.
+  </div>` : '<div class="dim right-note">Gold is the top level. Every job is open to you.</div>'}
+</div>
 
 <div class="stat-row">
   <div class="stat"><b>${V.money(money.balance(u.id))}</b><span>balance</span></div>
@@ -1427,7 +1443,8 @@ app.post('/jobs/:id/start', need('worker'), active, (req, res) => {
 
 app.get('/task/:id', need('worker'), (req, res) => {
   const s = db.prepare(`
-    SELECT s.*, j.title, j.instructions, j.proof_required, j.rate, j.min_seconds, j.hold_minutes
+    SELECT s.*, j.title, j.instructions, j.proof_required, j.rate, j.min_seconds,
+           j.hold_minutes, j.ttr_days
     FROM submissions s JOIN jobs j ON j.id = s.job_id
     WHERE s.id = ? AND s.worker_id = ?
   `).get(Number(req.params.id), req.user.id);
@@ -1458,6 +1475,25 @@ app.get('/task/:id', need('worker'), (req, res) => {
       <button class="link-danger" type="submit">Drop this task</button>
     </form>`;
 
+  const job = { ttr_days: s.ttr_days };
+  const waitHours = s.status === 'submitted' ? quality.hoursLeft(s, job) : null;
+  const canRate = quality.canWorkerRate(s.id, req.user.id);
+
+  const rating = !canRate ? '' : `
+    <form method="post" action="/task/${s.id}/rate" class="card pad">
+      ${csrfField(req)}
+      <h2>How was this buyer?</h2>
+      <p class="muted">Only workers who actually did a job can rate, and only once.
+         Other workers see this before they start.</p>
+      <div class="stars">
+        ${[5, 4, 3, 2, 1].map(n => `<input type="radio" id="st${n}" name="stars" value="${n}"${n === 5 ? ' checked' : ''}>
+          <label for="st${n}" title="${n} out of 5">&#9733;</label>`).join('')}
+      </div>
+      ${V.field({ label: 'Anything to add', name: 'comment', type: 'textarea', rows: 3,
+        hint: 'Clear instructions? Reviewed quickly? Optional.' })}
+      <button class="btn" type="submit">Send rating</button>
+    </form>`;
+
   const review = s.status === 'started' ? '' : `
     <div class="card pad">
       <h2>Your submission</h2>
@@ -1478,7 +1514,11 @@ app.get('/task/:id', need('worker'), (req, res) => {
           <input type="text" name="detail" placeholder="What happened?" required>
           <button class="btn btn-ghost btn-sm" type="submit">Report this rejection</button>
         </form>` : ''}
-    </div>`;
+      ${s.status === 'submitted' && waitHours !== null ? `
+        <p class="fine">The buyer has ${waitHours < 48 ? waitHours + ' hours' : Math.round(waitHours / 24) + ' days'}
+           left to review this. If they do not, it is approved and paid automatically &mdash;
+           you are never left waiting indefinitely.</p>` : ''}
+    </div>${rating}`;
 
   send(req, res, {
     title: s.title, active: 'tasks',
@@ -1525,6 +1565,22 @@ app.post('/task/:id/submit', need('worker'), active, upload.single('proof'), che
 
   audit(req.user.id, 'submit', `submission:${s.id}`, { seconds, flagged: verdict.flagged }, req.ip);
   back(res, '/task/' + s.id, 'Sent for review.', 'ok');
+});
+
+app.post('/task/:id/rate', need('worker'), (req, res) => {
+  const sub = db.prepare('SELECT * FROM submissions WHERE id = ? AND worker_id = ?')
+    .get(Number(req.params.id), req.user.id);
+  if (!sub) return fail(res, 'That task is not yours.');
+  try {
+    const stars = quality.rateBuyer({
+      submissionId: sub.id, workerId: req.user.id,
+      stars: req.body.stars, comment: req.body.comment,
+    });
+    audit(req.user.id, 'rate_buyer', `submission:${sub.id}`, { stars }, req.ip);
+    back(res, `/task/${sub.id}`, 'Thanks - your rating is recorded.', 'ok');
+  } catch (err) {
+    back(res, `/task/${sub.id}`, err.message, 'warn');
+  }
 });
 
 app.post('/task/:id/drop', need('worker'), (req, res) => {
@@ -1594,7 +1650,10 @@ function merchantJobTable(rows) {
         <td class="num">${j.slots_filled} / ${j.slots}</td>
         <td class="num">${V.money(e)}</td>
         <td>${V.statusPill(j.status)}</td>
-        <td class="right"><a class="link" href="/merchant/jobs/${j.id}">Manage</a></td>
+        <td class="right">
+          <a class="link" href="/merchant/jobs/new?clone=${j.id}">Clone</a>
+          <a class="link" href="/merchant/jobs/${j.id}">Manage</a>
+        </td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
 }
@@ -1607,6 +1666,28 @@ app.get('/merchant/jobs', need('merchant'), (req, res) => send(req, res, {
 
 app.get('/merchant/jobs/new', need('merchant'), active, (req, res) => {
   const cats = db.prepare('SELECT * FROM categories ORDER BY name').all();
+  const templates = db.prepare('SELECT * FROM job_templates ORDER BY sort, id').all();
+
+  // Starting from a template, or cloning an existing job of theirs. Either way
+  // the form arrives filled in - a blank instructions box is where vague jobs,
+  // and then rejected work, come from.
+  let pre = { title: '', instructions: '', proof_required: '', min_seconds: 60,
+              category_id: '', rate: '', slots: 10, country: '',
+              ttr_days: numSetting('default_ttr_days'), min_level: 0 };
+
+  if (req.query.template) {
+    const t = templates.find(x => x.id === Number(req.query.template));
+    if (t) pre = { ...pre, title: t.title, instructions: t.instructions,
+                   proof_required: t.proof, min_seconds: t.min_seconds,
+                   category_id: t.category_id || '' };
+  } else if (req.query.clone) {
+    const j = db.prepare('SELECT * FROM jobs WHERE id = ? AND merchant_id = ?')
+      .get(Number(req.query.clone), req.user.id);
+    if (j) pre = { title: j.title, instructions: j.instructions, proof_required: j.proof_required,
+                   min_seconds: j.min_seconds, category_id: j.category_id || '',
+                   rate: (j.rate / 100).toFixed(2), slots: j.slots, country: j.country || '',
+                   ttr_days: j.ttr_days, min_level: j.min_level };
+  }
   send(req, res, {
     title: 'Post a job', active: 'myjobs',
     body: `
@@ -1617,26 +1698,54 @@ app.get('/merchant/jobs/new', need('merchant'), active, (req, res) => {
   <p class="muted">Available now: <b>${V.money(money.balance(req.user.id))}</b> ·
      <a href="/wallet">Add funds</a></p>
 
+  ${req.query.template || req.query.clone ? '' : `
+  <div class="card pad">
+    <h2>Start from a template</h2>
+    <p class="muted">Each one is a complete job you can edit. Writing from a blank box
+       is where vague instructions come from, and vague instructions are what most
+       rejected work comes from.</p>
+    <div class="tpl-grid">
+      ${templates.map(t => `<a class="tpl" href="/merchant/jobs/new?template=${t.id}">
+        <b>${V.esc(t.name)}</b><span>${V.esc(t.title)}</span></a>`).join('')}
+    </div>
+    <p class="fine">Or fill in the form below yourself.</p>
+  </div>`}
+
   <form method="post" action="/merchant/jobs/new" class="card pad">
     ${csrfField(req)}
-    ${V.field({ label: 'Title', name: 'title', required: true, placeholder: 'Sign up and confirm your email' })}
-    ${V.field({ label: 'Category', name: 'category_id', type: 'select',
-      options: cats.map(c => ({ value: c.id, label: c.name })) })}
-    ${V.field({ label: 'What the worker must do', name: 'instructions', type: 'textarea', rows: 7, required: true,
-      hint: 'Number the steps. Vague instructions are the main cause of rejected work.' })}
+    ${req.query.clone ? '<div class="alert alert-info">Copied from one of your jobs. Change what you need and publish.</div>' : ''}
+    ${V.field({ label: 'Title', name: 'title', required: true, value: pre.title, placeholder: 'Sign up and confirm your email' })}
+    ${V.field({ label: 'Category', name: 'category_id', type: 'select', value: pre.category_id,
+      options: [{ value: '', label: 'Choose a category' }]
+        .concat(cats.map(c => ({ value: c.id, label: c.name }))) })}
+    ${V.field({ label: 'What the worker must do', name: 'instructions', type: 'textarea', rows: 9, required: true,
+      value: pre.instructions,
+      hint: 'Number the steps, and say what you will reject as well as what you want.' })}
     ${V.field({ label: 'Proof you want back', name: 'proof_required', type: 'textarea', rows: 4, required: true,
+      value: pre.proof_required,
       placeholder: 'Your username, and a screenshot of the confirmation screen' })}
     <div class="row-2">
-      ${V.field({ label: 'Pay per task', name: 'rate', required: true, placeholder: '5.00', hint: 'What one worker earns' })}
-      ${V.field({ label: 'How many workers', name: 'slots', type: 'number', min: 1, required: true, value: '10' })}
+      ${V.field({ label: 'Pay per task', name: 'rate', required: true, value: pre.rate, placeholder: '5.00', hint: 'What one worker earns' })}
+      ${V.field({ label: 'How many workers', name: 'slots', type: 'number', min: 1, required: true, value: pre.slots })}
     </div>
     <div class="row-2">
-      ${V.field({ label: 'Minimum time (seconds)', name: 'min_seconds', type: 'number', min: 20, value: '60',
+      ${V.field({ label: 'Minimum time (seconds)', name: 'min_seconds', type: 'number', min: 20, value: pre.min_seconds,
         hint: 'Anything faster gets flagged for you' })}
       ${V.field({ label: 'Time to finish (minutes)', name: 'hold_minutes', type: 'number', min: 5, value: '60',
         hint: 'Then the slot returns to the pool' })}
     </div>
-    ${V.field({ label: 'Country', name: 'country', placeholder: 'Leave blank for anywhere' })}
+    <div class="row-2">
+      ${V.field({ label: 'Days to review', name: 'ttr_days', type: 'number', min: 1, value: pre.ttr_days,
+        hint: 'You get this long to decide. Miss it and submissions approve themselves and are paid.' })}
+      <div class="field">
+        <label for="f-min_level">Minimum worker level</label>
+        <select id="f-min_level" name="min_level">
+          ${quality.LEVELS.map(l => `<option value="${l.level}"${Number(pre.min_level) === l.level ? ' selected' : ''}>${V.esc(l.name)}${l.level ? ' and above' : ' - anyone'}</option>`).join('')}
+        </select>
+        <span class="hint">Higher levels mean a proven record, and a smaller pool of workers.</span>
+      </div>
+    </div>
+    ${V.field({ label: 'Country', name: 'country', value: pre.country, placeholder: 'Leave blank for anywhere' })}
     <div id="cost-preview" class="cost">Cost: <b>--</b></div>
     <button class="btn btn-lg" type="submit">Fund and publish</button>
   </form>
@@ -1665,15 +1774,17 @@ app.post('/merchant/jobs/new', need('merchant'), active, (req, res) => {
   try {
     const info = db.prepare(`
       INSERT INTO jobs (merchant_id, category_id, title, instructions, proof_required,
-                        rate, slots, min_seconds, hold_minutes, country)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        rate, slots, min_seconds, hold_minutes, country, ttr_days, min_level)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       req.user.id, b.category_id ? Number(b.category_id) : null, title,
       String(b.instructions).trim(), String(b.proof_required).trim(),
       rate, slots,
       Math.max(numSetting('min_seconds_floor'), Number(b.min_seconds) || 60),
       Math.max(5, Number(b.hold_minutes) || 60),
-      String(b.country || '').trim() || null
+      String(b.country || '').trim() || null,
+      Math.min(numSetting('max_ttr_days'), Math.max(1, Number(b.ttr_days) || numSetting('default_ttr_days'))),
+      Math.min(3, Math.max(0, Number(b.min_level) || 0))
     );
     const jobId = Number(info.lastInsertRowid);
     money.fundJob(jobId, req.user.id, total);
@@ -1776,24 +1887,56 @@ app.post('/merchant/jobs/:id/cancel', need('merchant'), (req, res) => {
 
 app.get('/merchant/review', need('merchant'), (req, res) => {
   const subs = db.prepare(`
-    SELECT s.*, j.title, j.rate, j.min_seconds, j.proof_required, u.name AS worker
+    SELECT s.*, j.title, j.rate, j.min_seconds, j.proof_required, j.ttr_days, u.name AS worker
     FROM submissions s JOIN jobs j ON j.id = s.job_id JOIN users u ON u.id = s.worker_id
     WHERE s.merchant_id = ? AND s.status = 'submitted'
     ORDER BY s.flagged DESC, s.id ASC
-  `).all(req.user.id);
+  `).all(req.user.id).map(x => ({
+    ...x,
+    hoursLeft: quality.hoursLeft(x, { ttr_days: x.ttr_days }),
+    standing: quality.workerStanding(x.worker_id),
+  }));
+
+  // Soonest deadline first inside each group, so the ones about to approve
+  // themselves are the ones in front of you.
+  subs.sort((a, b) => (b.flagged - a.flagged) || ((a.hoursLeft ?? 1e9) - (b.hoursLeft ?? 1e9)));
+  const urgent = subs.filter(x => x.hoursLeft !== null && x.hoursLeft <= 24).length;
+  const clean = subs.filter(x => !x.flagged);
 
   send(req, res, {
     title: 'Review work', active: 'review',
     body: `
 <h1>Review work</h1>
-<p class="muted">${subs.length} waiting. Flagged ones are shown first &mdash; flagged does not mean bad,
-   it means worth a closer look.</p>
+<p class="muted">${subs.length} waiting. Flagged ones come first, then whatever is closest
+   to its deadline. Flagged does not mean bad &mdash; it means worth a closer look.</p>
+
+${urgent ? `<div class="alert alert-warn"><b>${urgent} ${urgent === 1 ? 'submission is' : 'submissions are'} within a day of the deadline.</b>
+  When it passes they are approved and paid automatically. That is the deal you set when
+  you chose the review window.</div>` : ''}
+
+${clean.length > 1 ? `
+<div class="card pad bulk">
+  <div>
+    <b>${clean.length} unflagged submissions</b>
+    <span class="dim">Nothing about these looked unusual. You can still open each one.</span>
+  </div>
+  <form method="post" action="/merchant/review/approve-clean"
+        onsubmit="return confirm('Approve ${clean.length} submissions and pay ${V.money(clean.reduce((t, x) => t + x.rate, 0))}?\n\nOnly the ones with nothing flagged are included.')">
+    ${csrfField(req)}
+    <button class="btn" type="submit">Approve all ${clean.length} &mdash; ${V.money(clean.reduce((t, x) => t + x.rate, 0))}</button>
+  </form>
+</div>` : ''}
 
 ${subs.length ? subs.map(s => `
 <div class="card review" id="s${s.id}">
   <div class="card-head">
-    <div><b>${V.esc(s.worker)}</b> <span class="dim">on</span> ${V.esc(s.title)}</div>
-    <span class="dim">${V.ago(s.submitted_at)}</span>
+    <div><b>${V.esc(s.worker)}</b>
+      <span class="pill lvl">${V.esc(s.standing.name)}</span>
+      ${s.standing.rate !== null ? `<span class="dim">${s.standing.rate}% approved over ${s.standing.decided}</span>` : '<span class="dim">no history yet</span>'}
+      <div class="dim">on ${V.esc(s.title)} &middot; sent ${V.ago(s.submitted_at)}</div></div>
+    <span class="${s.hoursLeft !== null && s.hoursLeft <= 24 ? 'pill s-rejected' : 'pill s-submitted'}">
+      ${s.hoursLeft === null ? '' : s.hoursLeft <= 0 ? 'approving now'
+        : s.hoursLeft < 48 ? s.hoursLeft + 'h to decide' : Math.round(s.hoursLeft / 24) + 'd to decide'}</span>
   </div>
   <div class="pad">
     ${s.flagged ? `<div class="alert alert-warn"><b>Flagged:</b> ${V.esc(s.flag_reason)}</div>` : ''}
@@ -1820,6 +1963,45 @@ ${subs.length ? subs.map(s => `
   </div>
 </div>`).join('') : '<div class="empty">Nothing is waiting for you.</div>'}`,
   });
+});
+
+/* Approve everything that was not flagged, in one go.
+
+   Deliberately excludes flagged submissions. The whole point of the flag is
+   that a person should look at it, and a button that waves those through in a
+   batch would quietly undo the check.
+*/
+app.post('/merchant/review/approve-clean', need('merchant'), (req, res) => {
+  const rows = db.prepare(
+    "SELECT id FROM submissions WHERE merchant_id = ? AND status = 'submitted' AND flagged = 0"
+  ).all(req.user.id);
+
+  let paid = 0, total = 0;
+  const problems = [];
+
+  for (const row of rows) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const sub = db.prepare("SELECT * FROM submissions WHERE id = ? AND status = 'submitted'").get(row.id);
+      if (!sub) { db.exec('COMMIT'); continue; }
+      const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(sub.job_id);
+      const result = money.payForSubmission(sub, job);
+      db.prepare("UPDATE submissions SET status = 'approved', reviewed_at = datetime('now') WHERE id = ?")
+        .run(sub.id);
+      db.exec('COMMIT');
+      paid++; total += result.net;
+    } catch (err) {
+      db.exec('ROLLBACK');
+      problems.push(err.message);
+    }
+  }
+
+  audit(req.user.id, 'bulk_approve', null, { paid, total }, req.ip);
+  back(res, '/merchant/review',
+    problems.length
+      ? `Approved ${paid}. ${problems.length} could not be paid: ${problems[0]}`
+      : `Approved ${paid} and paid ${money.fmt(total)}.`,
+    problems.length ? 'warn' : 'ok');
 });
 
 app.post('/submissions/:id/approve', need('merchant'), (req, res) => {
@@ -3720,11 +3902,22 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 
 // Housekeeping: abandoned slots go back in the pool, dead sessions get swept.
 setInterval(() => {
-  try { spam.releaseExpiredHolds(); auth.sweepSessions(); } catch (e) { console.error(e.message); }
+  try {
+    spam.releaseExpiredHolds();
+    auth.sweepSessions();
+    // The review deadline. Also run on boot below, because a server that was
+    // down for a day must not swallow the deadlines it was meant to enforce.
+    const paid = quality.releaseOverdue();
+    if (paid) console.log(`  auto-approved ${paid} submission(s) past their review deadline`);
+  } catch (e) { console.error(e.message); }
 }, 60000).unref();
 
 const server = app.listen(PORT, HOST, () => {
   spam.releaseExpiredHolds();
+  try {
+    const caught = quality.releaseOverdue();
+    if (caught) console.log(`  auto-approved ${caught} submission(s) whose deadline passed while down`);
+  } catch (e) { console.error('  deadline sweep failed:', e.message); }
   const on = x => (x ? 'on' : 'off');
   console.log('');
   console.log('  Remote Work BD');

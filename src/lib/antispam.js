@@ -51,6 +51,20 @@ function canStart(worker, job) {
     return { allowed: false, code: 'country', reason: `This job is only for workers in ${job.country}.` };
   }
 
+  // Level gate. Required late to avoid a circular require between the two
+  // modules that both reason about a worker's history.
+  if (job.min_level > 0) {
+    const quality = require('./quality');
+    const standing = quality.workerStanding(worker.id);
+    if (standing.level < job.min_level) {
+      return {
+        allowed: false, code: 'level',
+        reason: `This job needs ${quality.levelName(job.min_level)} level or above. You are ${standing.name}`
+          + (standing.next ? ` - ${standing.next.tasks} approved tasks at ${standing.next.minRate}% or better reaches ${standing.next.name}.` : '.'),
+      };
+    }
+  }
+
   // 1. Once per job, forever.
   const already = db.prepare(
     'SELECT id, status FROM submissions WHERE job_id = ? AND worker_id = ?'

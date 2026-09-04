@@ -841,3 +841,55 @@ body.drawer-open { overflow: hidden; }
 }
 
 @media (min-width: 901px) { .drawer { display: none !important; } }
+
+/* ------------------------------------------------- templates, levels, bulk */
+
+/* Starting a job from a template. Cards rather than a select, because the
+   point is to read the job before choosing it. */
+.tpl-grid {
+  display: grid; gap: 10px; margin-top: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+}
+.tpl {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--card); text-decoration: none; color: var(--ink);
+}
+.tpl:hover { border-color: var(--green); background: var(--green-bg); }
+.tpl b { font-family: var(--head); font-size: 14.5px; }
+.tpl span { color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+
+.pill.lvl { background: var(--navy-bg); color: var(--navy); text-transform: none; }
+
+/* The approve-all row. Deliberately not styled as a danger action - it only
+   ever touches submissions nothing flagged. */
+.bulk {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 18px;
+  border-left: 3px solid var(--green);
+}
+.bulk .dim { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+/* Star rating. Reversed row order so the CSS sibling selector can light up
+   the chosen star and every one before it. */
+.stars { display: inline-flex; flex-direction: row-reverse; justify-content: flex-end; gap: 2px; }
+.stars input { position: absolute; opacity: 0; width: 0; height: 0; }
+.stars label {
+  font-size: 26px; line-height: 1; color: var(--line); cursor: pointer;
+  transition: color .12s;
+}
+.stars label:hover, .stars label:hover ~ label,
+.stars input:checked ~ label { color: #E8A700; }
+.stars input:focus-visible + label { outline: 2px solid var(--green); border-radius: 4px; }
+
+.level-card {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap; margin-bottom: 18px;
+  border-left: 3px solid var(--navy);
+}
+.level-card b { font-family: var(--head); margin-left: 8px; }
+.level-card .dim { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.level-card .right-note { max-width: 340px; text-align: right; }
+@media (max-width: 620px) {
+  .level-card .right-note { text-align: left; max-width: none; }
+}

@@ -373,6 +373,51 @@ const MIGRATIONS = [
       CREATE INDEX idx_ref_referrer ON referral_earnings(referrer_id, id DESC);
     `,
   },
+  {
+    id: 6,
+    name: 'review deadline, worker levels, buyer ratings',
+    sql: `
+      -- How long a buyer has to review a submission before it approves itself.
+      -- Without this a buyer can simply never look, and the worker waits
+      -- forever with their money sitting in escrow. It is the single biggest
+      -- unfairness these marketplaces have, and a deadline is the fix.
+      ALTER TABLE jobs ADD COLUMN ttr_days INTEGER NOT NULL DEFAULT 7;
+      -- Minimum worker level a job will accept.
+      ALTER TABLE jobs ADD COLUMN min_level INTEGER NOT NULL DEFAULT 0;
+
+      ALTER TABLE submissions ADD COLUMN auto_approved INTEGER NOT NULL DEFAULT 0;
+      CREATE INDEX idx_sub_pending ON submissions(status, submitted_at);
+
+      -- Workers rate the buyer after a decision. A marketplace where only one
+      -- side is rated gives the other side no reason to behave.
+      CREATE TABLE buyer_ratings (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        merchant_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        worker_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        submission_id INTEGER NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+        stars         INTEGER NOT NULL CHECK (stars BETWEEN 1 AND 5),
+        comment       TEXT,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      -- One rating per submission, so nobody can pile on.
+      CREATE UNIQUE INDEX idx_brate_once ON buyer_ratings(submission_id);
+      CREATE INDEX idx_brate_merchant ON buyer_ratings(merchant_id, id DESC);
+
+      -- Ready-made instructions for common job types. Vague instructions cause
+      -- most rejections, so the fastest way to reduce them is to stop asking
+      -- buyers to write from a blank box.
+      CREATE TABLE job_templates (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        category_id  INTEGER REFERENCES categories(id),
+        name         TEXT NOT NULL,
+        title        TEXT NOT NULL,
+        instructions TEXT NOT NULL,
+        proof        TEXT NOT NULL,
+        min_seconds  INTEGER NOT NULL DEFAULT 60,
+        sort         INTEGER NOT NULL DEFAULT 0
+      );
+    `,
+  },
 ];
 
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (
@@ -426,6 +471,16 @@ const DEFAULTS = {
   referral_task_bps: '1500',
   // Share of a referred buyer's deposit:
   referral_deposit_bps: '100',
+  // Review deadline, in days. A buyer who does not decide inside this window
+  // has the submission approved for them and the worker paid.
+  default_ttr_days: '7',
+  max_ttr_days: '14',
+  // Worker levels: tasks approved needed for each, and the satisfaction rate
+  // that must be held to stay there.
+  level2_tasks: '25',
+  level3_tasks: '100',
+  level4_tasks: '400',
+  level_min_rate: '80',
 };
 
 function getSetting(key, fallback = null) {
