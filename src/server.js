@@ -4151,9 +4151,19 @@ function baseUrl(req) {
 }
 
 function recordEvent(provider, depositId, ref, verified, status, payload, ip) {
+  /* Only link to a deposit that exists.
+
+     deposit_id is a foreign key, so an order id we do not recognise used to
+     fail the insert and take the whole webhook down with it - a 500, which
+     every gateway answers by retrying, so one stray callback became a storm.
+     The claimed id is still in the stored payload, so nothing is lost by
+     recording the row unlinked. */
+  const linked = depositId
+    && db.prepare('SELECT 1 FROM deposits WHERE id = ?').get(depositId) ? depositId : null;
+
   db.prepare(`INSERT INTO gateway_events (provider, deposit_id, ref, verified, status, payload, ip)
               VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(provider, depositId || null, ref || null, verified ? 1 : 0, status || null,
+    .run(provider, linked, ref || null, verified ? 1 : 0, status || null,
          typeof payload === 'string' ? payload.slice(0, 20000) : JSON.stringify(payload).slice(0, 20000),
          ip || null);
 }
@@ -4378,6 +4388,21 @@ app.post('/hooks/cryptomus', express.json({ limit: '256kb' }), (req, res) => {
     ? db.prepare("SELECT * FROM deposits WHERE id = ? AND provider = 'cryptomus'").get(orderId)
     : null;
   if (!dep) return res.status(200).json({ ok: true });
+
+  /* The invoice this callback is about must be the invoice we opened for this
+     deposit.
+
+     order_id is our own row number, which is only unique within one database.
+     Point a staging deploy and the live site at the same Cryptomus merchant -
+     an easy thing to do while testing - and a callback for staging deposit 41
+     arrives quoting order_id 41, matching a completely different person's
+     deposit here. The signature would be valid, because it is the same
+     merchant key. The invoice id is what actually ties the two together. */
+  if (dep.provider_ref && payload.uuid && dep.provider_ref !== payload.uuid) {
+    audit(null, 'webhook_wrong_invoice', `deposit:${dep.id}`,
+      { expected: dep.provider_ref, got: payload.uuid }, req.ip);
+    return res.status(200).json({ ok: true });
+  }
 
   const state = cryptomus.classify(payload.status);
   try {
