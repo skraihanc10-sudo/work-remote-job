@@ -4407,9 +4407,61 @@ app.get('/admin/gateway', need('admin'), (req, res) => {
   `).all();
   const bad = db.prepare('SELECT COUNT(*) AS n FROM gateway_events WHERE verified = 0').get().n;
 
+  const site = String(process.env.PUBLIC_URL || '').replace(/\/$/, '');
+  const localhost = !site || /localhost|127\.0\.0\.1/.test(site);
+
   send(req, res, {
     title: 'Gateway', active: 'gateway', wide: true,
     body: `<h1>Gateway activity</h1>
+
+${cryptomus.configured() && eps.configured() ? '' : `
+<div class="card pad">
+  <h2>Turn a gateway on</h2>
+  <p class="muted">Both read their keys from the environment rather than from settings,
+     because a payment key is a deployment secret. On Railway that is
+     <b>Variables</b>; the service restarts on its own once you save.</p>
+
+  ${cryptomus.configured() ? '' : `
+  <div class="setup-block">
+    <h3>Cryptomus <span class="pill s-submitted">off</span></h3>
+    <p class="muted">Crypto deposits. Sign up at cryptomus.com, create a merchant,
+       then open <b>Settings &rarr; API</b> to find both values.</p>
+    <table class="mini"><tbody>
+      <tr><td class="mono">CRYPTOMUS_MERCHANT_ID</td><td class="dim">the merchant UUID</td></tr>
+      <tr><td class="mono">CRYPTOMUS_PAYMENT_KEY</td><td class="dim">the payment API key, not the payout one</td></tr>
+    </tbody></table>
+    <p class="muted">Then paste this into Cryptomus as the webhook or callback URL:</p>
+    <p class="mono copyline">${V.esc(site || 'https://your-domain')}/hooks/cryptomus</p>
+    ${localhost ? `<div class="alert alert-warn">
+      <b>PUBLIC_URL is not a public address.</b> Cryptomus calls that URL from the
+      internet, so a deposit will never be credited while it points at localhost.
+      Set PUBLIC_URL to your real domain first.</div>` : ''}
+    <p class="fine">Deposits are priced in USD and credited at the
+      <a class="link" href="/admin/settings">rate you set by hand</a>
+      &mdash; currently ${V.money(numSetting('usd_rate'))} to the dollar. Check that before
+      taking a real payment: everything is credited at whatever it says.</p>
+  </div>`}
+
+  ${eps.configured() ? '' : `
+  <div class="setup-block">
+    <h3>EPS <span class="pill s-submitted">off</span></h3>
+    <p class="muted">bKash, Nagad, Rocket and cards. Needs a merchant account from
+       Easy Payment System, so it takes longer to arrange than Cryptomus.</p>
+    <table class="mini"><tbody>
+      <tr><td class="mono">EPS_USERNAME</td><td class="dim"></td></tr>
+      <tr><td class="mono">EPS_PASSWORD</td><td class="dim"></td></tr>
+      <tr><td class="mono">EPS_HASH_KEY</td><td class="dim">signs every request</td></tr>
+      <tr><td class="mono">EPS_MERCHANT_ID</td><td class="dim"></td></tr>
+      <tr><td class="mono">EPS_STORE_ID</td><td class="dim"></td></tr>
+      <tr><td class="mono">EPS_SANDBOX</td><td class="dim">1 to test, 0 for real money</td></tr>
+    </tbody></table>
+  </div>`}
+
+  <p class="fine">Every callback that arrives is listed below with whether its signature
+     checked out. A deposit is only ever credited from a signed callback or a
+     server-to-server verify &mdash; never from somebody landing on a success page.</p>
+</div>`}
+
 <div class="stat-row">
   <div class="stat"><b>${eps.configured() ? 'on' : 'off'}</b><span>EPS</span></div>
   <div class="stat"><b>${cryptomus.configured() ? 'on' : 'off'}</b><span>Cryptomus</span></div>

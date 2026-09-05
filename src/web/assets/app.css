@@ -1131,3 +1131,24 @@ td.nowrap .link + .link { margin-left: 12px; }
    before it to have happened. */
 .steps { margin: 14px 0 0; padding-left: 22px; }
 .steps li { margin-bottom: 10px; font-size: 14.5px; line-height: 1.6; color: var(--ink-2); }
+
+/* ------------------------------------------- gateway setup instructions */
+.setup-block {
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px 18px; margin: 16px 0 0; background: var(--sunk);
+}
+.setup-block h3 {
+  font-family: var(--head); font-size: 15.5px; margin: 0 0 6px;
+  display: flex; align-items: center; gap: 9px;
+}
+table.mini { width: 100%; border-collapse: collapse; margin: 10px 0; }
+table.mini td { padding: 5px 0; font-size: 13px; border-bottom: 1px solid var(--line); }
+table.mini td:first-child { width: 46%; }
+
+/* The URL people have to copy into the provider's dashboard. Given room of its
+   own and made selectable-looking, because a callback URL pasted wrong is the
+   single most common reason a deposit never arrives. */
+.copyline {
+  background: var(--card); border: 1px solid var(--line); border-radius: 7px;
+  padding: 10px 13px; font-size: 13px; user-select: all; word-break: break-all;
+}
