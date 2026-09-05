@@ -318,8 +318,10 @@ app.get('/', (req, res) => {
 <section class="hero2">
   <div class="hero2-copy">
     <h1>Microjobs and freelancing<br>to make money online</h1>
-    <p class="hero2-sub">Small gigs. Real payouts.</p>
-    <p class="hero2-line">Every job is funded before it goes live.</p>
+    <p class="hero2-sub">Small gigs. Real payouts.
+      <span class="bn">ছোট ছোট কাজ, সত্যিকারের টাকা।</span></p>
+    <p class="hero2-line">Every job is funded before it goes live.
+      <span class="bn">কাজ পোস্ট হওয়ার আগেই টাকা জমা থাকে &mdash; তাই পেমেন্ট নিয়ে চিন্তা নেই।</span></p>
     <a href="/login?want=worker" class="btn btn-lg">Earn money
       <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
         stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -535,7 +537,9 @@ app.get('/jobs', (req, res) => {
     title: 'Find work', active: 'jobs', wide: true,
     body: `
 <div class="page-head">
-  <div><h1>Find work</h1><p class="muted">${jobs.length} job${jobs.length === 1 ? '' : 's'} with open slots.</p></div>
+  <div><h1>Find work ${V.bn('কাজ খুঁজুন')}</h1>
+    <p class="muted">${jobs.length} job${jobs.length === 1 ? '' : 's'} with open slots.
+      <span class="bn">নির্দেশনা ভালো করে পড়ে তবেই কাজ শুরু করুন &mdash; ঠিকমতো না করলে বায়ার বাতিল করে দিতে পারে।</span></p></div>
   <form class="filters" method="get" action="/jobs">
     <input type="search" name="q" value="${V.esc(q)}" placeholder="Search jobs">
     <select name="cat">
@@ -596,15 +600,16 @@ app.get('/jobs/:id', (req, res) => {
 
   <aside>
     <div class="card pad sticky">
-      <div class="pay"><b>${V.money(job.rate)}</b><span>per approved task</span></div>
+      <div class="pay"><b>${V.money(job.rate)}</b><span>per approved task ${V.bn('প্রতি কাজে')}</span></div>
       <dl class="kv">
-        <dt>Slots left</dt><dd>${left} of ${job.slots}</dd>
-        <dt>Expected time</dt><dd>at least ${V.mmss(job.min_seconds)}</dd>
-        <dt>Time to finish</dt><dd>${job.hold_minutes} minutes once started</dd>
+        <dt>Slots left ${V.bn('বাকি আছে')}</dt><dd>${left} of ${job.slots}</dd>
+        <dt>Expected time ${V.bn('সময় লাগবে')}</dt><dd>at least ${V.mmss(job.min_seconds)}</dd>
+        <dt>Time to finish ${V.bn('শেষ করার সময়')}</dt><dd>${job.hold_minutes} minutes once started</dd>
         ${job.country ? `<dt>Country</dt><dd>${V.esc(job.country)}</dd>` : ''}
       </dl>
       ${action}
-      <p class="fine">Each worker can do this job once. Your time on the task is recorded.</p>
+      <p class="fine">Each worker can do this job once. Your time on the task is recorded.<br>
+        ${V.bn('একটি কাজ একজন একবারই করতে পারবেন। আপনি কত সময় নিলেন তা রেকর্ড হয়।')}</p>
     </div>
   </aside>
 </div>`,
@@ -1205,15 +1210,15 @@ function authPage(req, res, mode) {
     <div class="auth-card">
       <h2>${signup ? 'Sign up with your details' : 'Sign in to your account'}</h2>
       <p class="sub">${signup
-        ? 'Fill in the fields below to create your new account.'
-        : 'Enter your details below to reach your account.'}</p>
+        ? 'Fill in the fields below to create your new account. <span class="bn">নিচের তথ্যগুলো দিয়ে অ্যাকাউন্ট খুলুন।</span>'
+        : 'Enter your details below to reach your account. <span class="bn">আপনার তথ্য দিয়ে লগইন করুন।</span>'}</p>
 
       ${signup ? `
       <div class="role-pick" role="group" aria-label="What kind of account">
         <a class="${hiring ? '' : 'on'}" href="/signup${next ? '?next=' + encodeURIComponent(next) : ''}">
-          <b>I want to work</b><span>Do tasks, get paid</span></a>
+          <b>I want to work</b><span>Do tasks, get paid<br>কাজ করে টাকা আয়</span></a>
         <a class="${hiring ? 'on' : ''}" href="/signup?want=merchant${next ? '&next=' + encodeURIComponent(next) : ''}">
-          <b>I want to hire</b><span>Post tasks, fund them</span></a>
+          <b>I want to hire</b><span>Post tasks, fund them<br>কাজ দেব, টাকা দেব</span></a>
       </div>` : ''}
 
       ${googleBtn}
@@ -1255,7 +1260,8 @@ function authPage(req, res, mode) {
           <label class="check">
             <input type="checkbox" name="agree" value="1" required>
             <span>I agree to the <a href="/terms" target="_blank">Terms &amp; conditions</a>
-              and the <a href="/privacy-policy" target="_blank">Privacy policy</a>.</span>
+              and the <a href="/privacy-policy" target="_blank">Privacy policy</a>.
+              <span class="bn">এক ব্যক্তি একটির বেশি অ্যাকাউন্ট খুললে সব বন্ধ করে দেওয়া হবে।</span></span>
           </label>
 
           <button class="btn btn-lg btn-block" type="submit">Create my account</button>
@@ -1837,23 +1843,27 @@ app.get('/task/:id', need('worker'), (req, res) => {
   const form = s.status !== 'started' ? '' : `
     <form method="post" action="/task/${s.id}/submit" enctype="multipart/form-data" class="card pad">
       ${csrfField(req)}
-      <h2>Send your proof</h2>
+      <h2>Send your proof ${V.bn('প্রমাণ পাঠান')}</h2>
       <div class="prose muted">${V.esc(s.proof_required).replace(/\n/g, '<br>')}</div>
       ${V.field({ label: 'What you did', name: 'proof_text', type: 'textarea', rows: 5, required: true,
-        hint: 'Include the details the buyer asked for - a username, an order number, whatever proves it.' })}
+        hint: 'Include the details the buyer asked for - a username, an order number, whatever proves it. / বায়ার যা চেয়েছে তা লিখুন - ইউজারনেম, অর্ডার নম্বর, যা প্রমাণ করে।' })}
       <div class="field">
-        <label for="f-proof">Screenshot <em>optional</em></label>
+        <label for="f-proof">Screenshot <em>optional</em> ${V.bn('স্ক্রিনশট')}</label>
         <input id="f-proof" type="file" name="proof" accept="image/jpeg,image/png,image/webp">
         <span class="hint">JPG, PNG or WebP, up to 4MB.</span>
+      </div>
+      <div class="alert alert-info">
+        <b>Copying somebody else's proof, or sending the same thing twice, is caught.</b>
+        ${V.bn('অন্যের প্রমাণ কপি করলে বা একই জিনিস বারবার পাঠালে ধরা পড়বে - অ্যাকাউন্ট বন্ধ হয়ে যেতে পারে।')}
       </div>
       <div class="btn-row">
         <button class="btn btn-lg" type="submit">Send for review</button>
       </div>
     </form>
     <form method="post" action="/task/${s.id}/drop" class="drop-form"
-          onsubmit="return confirm('Drop this task? Your slot goes back to the pool and you cannot take this job again.')">
+          onsubmit="return confirm('Drop this task? Your slot goes back to the pool and you cannot take this job again.\n\nকাজটি বাদ দেবেন? স্লট ফেরত যাবে এবং এই কাজটি আর নিতে পারবেন না।')">
       ${csrfField(req)}
-      <button class="link-danger" type="submit">Drop this task</button>
+      <button class="link-danger" type="submit">Drop this task ${V.bn('কাজটি বাদ দিন')}</button>
     </form>`;
 
   const job = { ttr_days: s.ttr_days };
@@ -2494,15 +2504,16 @@ app.get('/wallet', need(), (req, res) => {
 
   const addFunds = u.role !== 'merchant' ? '' : `
     <div class="card pad">
-      <h2>Add funds</h2>
+      <h2>Add funds ${V.bn('টাকা যোগ করুন')}</h2>
       <p class="muted">Smallest deposit is $${(minUsd / 100).toFixed(2)}. Money lands in your
-         balance only once the payment provider confirms it &mdash; never on our say-so.</p>
+         balance only once the payment provider confirms it &mdash; never on our say-so.<br>
+         ${V.bn(`সর্বনিম্ন $${(minUsd / 100).toFixed(2)} ডলার। পেমেন্ট প্রোভাইডার নিশ্চিত করার পরেই টাকা ব্যালেন্সে যোগ হবে।`)}</p>
 
       ${methods.length ? `
       <form method="post" action="${methods[0].action}" id="deposit-form" class="deposit">
         ${csrfField(req)}
 
-        <span class="lbl">How do you want to pay?</span>
+        <span class="lbl">How do you want to pay? ${V.bn('কীভাবে টাকা দেবেন?')}</span>
         <div class="pay-pick">
           ${methods.map((m, i) => `
             <label class="pay ${i === 0 ? 'on' : ''}">
@@ -2515,7 +2526,7 @@ app.get('/wallet', need(), (req, res) => {
             </label>`).join('')}
         </div>
 
-        <span class="lbl">How much?</span>
+        <span class="lbl">How much? ${V.bn('কত টাকা?')}</span>
         <div class="amt-quick">
           ${quick.map(x => `<button type="button" class="amt" data-usd="${x}">$${x}</button>`).join('')}
         </div>
@@ -2534,14 +2545,15 @@ app.get('/wallet', need(), (req, res) => {
 
         <button class="btn btn-lg" type="submit">Continue to payment</button>
         <p class="fine">You will be taken to the provider to pay. Nothing is added here until
-           they confirm it, so closing the page by accident costs you nothing.</p>
+           they confirm it, so closing the page by accident costs you nothing.<br>
+           ${V.bn('পেমেন্ট করতে প্রোভাইডারের পেজে যাবেন। ভুলে পেজ বন্ধ হয়ে গেলেও কোনো টাকা কাটবে না।')}</p>
       </form>`
       : `<div class="alert alert-warn">
           <b>No payment provider is switched on yet.</b>
           Record a transfer below and an admin will confirm it by hand.</div>`}
 
       <details class="manual">
-        <summary>Paid another way? Record it here</summary>
+        <summary>Paid another way? Record it here ${V.bn('অন্যভাবে পাঠিয়েছেন? এখানে লিখুন')}</summary>
         <p class="muted">Use this only if you sent money outside the site. An admin checks the
            reference against the account before crediting anything.</p>
         <form method="post" action="/wallet/deposit">
@@ -2589,12 +2601,14 @@ app.get('/wallet', need(), (req, res) => {
       <h2>Withdraw <span class="bn">টাকা তুলুন</span></h2>
       <p class="muted">Smallest withdrawal is ${V.money(numSetting('min_withdrawal'))}.
          The amount leaves your balance straight away and is paid out after an admin
-         checks it.</p>
+         checks it.<br>
+         ${V.bn(`সর্বনিম্ন ${V.money(numSetting('min_withdrawal'))} টাকা। রিকোয়েস্ট করলেই ব্যালেন্স থেকে কেটে যাবে, অ্যাডমিন দেখে পাঠিয়ে দেবে।`)}</p>
 
       ${pending.length ? `
       <div class="alert alert-info">
         <b>${pending.length} withdrawal${pending.length === 1 ? '' : 's'} waiting.</b>
         You can cancel any of them below until an admin pays it.
+        ${V.bn('অ্যাডমিন পাঠানোর আগ পর্যন্ত আপনি নিজেই বাতিল করতে পারবেন।')}
       </div>` : ''}
 
       <div class="alert alert-warn">
@@ -2609,10 +2623,10 @@ app.get('/wallet', need(), (req, res) => {
         ${csrfField(req)}
 
         ${V.field({ label: 'Amount', name: 'amount', required: true,
-          hint: `In ${V.esc(getSetting('currency'))}. You have ${V.money(money.balance(u.id))}.` })}
+          hint: `In ${V.esc(getSetting('currency'))}. You have ${V.money(money.balance(u.id))}. / আপনার ব্যালেন্সে আছে ${V.money(money.balance(u.id))}।` })}
 
         <div class="field">
-          <label for="w-method">Send it to</label>
+          <label for="w-method">Send it to ${V.bn('কোথায় পাঠাব')}</label>
           <select id="w-method" name="method">
             ${[['bkash', 'bKash (personal)'], ['nagad', 'Nagad (personal)'],
                ['rocket', 'Rocket (personal)'], ['bank', 'Bank transfer']]
@@ -2622,11 +2636,11 @@ app.get('/wallet', need(), (req, res) => {
 
         ${V.field({ label: 'Account holder name', name: 'account_name', required: true,
           value: saved.name,
-          hint: 'Exactly as it is registered on the account. A name that does not match is why a payout fails.' })}
+          hint: 'Exactly as it is registered on the account. / অ্যাকাউন্টে যে নাম আছে হুবহু সেটাই দিন - নাম না মিললে পেমেন্ট ফেরত আসে।' })}
 
         ${V.field({ label: 'Number or account', name: 'account_number', required: true,
           value: saved.number, placeholder: '01XXXXXXXXX',
-          hint: 'Your personal wallet number, or the account number for a bank.' })}
+          hint: 'Your personal wallet number, or the account number for a bank. / আপনার পার্সোনাল নম্বর, অথবা ব্যাংক হলে অ্যাকাউন্ট নম্বর।' })}
 
         <div id="bank-only" class="bank-fields" hidden>
           <div class="row-2">
@@ -2638,13 +2652,14 @@ app.get('/wallet', need(), (req, res) => {
         </div>
 
         <button class="btn" type="submit">Request withdrawal</button>
-        <p class="fine">Nothing is sent until an admin checks it. You can cancel while it waits.</p>
+        <p class="fine">Nothing is sent until an admin checks it. You can cancel while it waits.<br>
+           ${V.bn('অ্যাডমিন যাচাই করার আগে কিছুই পাঠানো হয় না। অপেক্ষার সময় আপনি বাতিল করতে পারবেন।')}</p>
       </form>
     </div>` ;
 
   const pendingList = (u.role !== 'worker' || !pending.length) ? '' : `
     <div class="card">
-      <div class="card-head"><h2>Waiting to be paid</h2></div>
+      <div class="card-head"><h2>Waiting to be paid ${V.bn('পেমেন্টের অপেক্ষায়')}</h2></div>
       <div class="table-wrap"><table>
         <thead><tr><th>Asked</th><th>Amount</th><th>To</th><th></th></tr></thead>
         <tbody>${pending.map(w => `<tr>
@@ -5206,13 +5221,15 @@ app.get('/referrals', need(), (req, res) => {
   send(req, res, {
     title: 'Refer a friend', active: 'referrals',
     body: `
-<div class="page-head"><div><h1>Refer a friend</h1>
-  <p class="muted">Share your link. You earn every time they do.</p></div></div>
+<div class="page-head"><div><h1>Refer a friend ${V.bn('বন্ধুকে আনুন')}</h1>
+  <p class="muted">Share your link and earn ${V.money(numSetting('referral_flat'))} once your friend's
+     first task is approved.<br>
+     ${V.bn(`আপনার লিংকে কেউ জয়েন করে প্রথম কাজ শেষ করলেই আপনি ${V.money(numSetting('referral_flat'))} টাকা পাবেন।`)}</p></div></div>
 
 <div class="stat-row">
-  <div class="stat"><b>${s.joined}</b><span>joined with your link</span></div>
+  <div class="stat"><b>${s.joined}</b><span>joined with your link ${V.bn('জয়েন করেছে')}</span></div>
   <div class="stat"><b>${s.active}</b><span>have earned you something</span></div>
-  <div class="stat ok"><b>${V.money(s.earned)}</b><span>earned from referrals</span></div>
+  <div class="stat ok"><b>${V.money(s.earned)}</b><span>earned from referrals ${V.bn('আয় হয়েছে')}</span></div>
 </div>
 
 <div class="card pad ref-card">
@@ -5672,7 +5689,8 @@ app.get('/support', need(), (req, res) => {
     body: `
 <div class="page-head"><div><h1>Support</h1>
   <p class="muted">Replies land right here, and we usually answer within a day.
-     Or reach us wherever suits you better.</p></div></div>
+     Or reach us wherever suits you better.<br>
+     ${V.bn('উত্তর এখানেই পাবেন, সাধারণত একদিনের মধ্যে। অথবা নিচের যেকোনো মাধ্যমে যোগাযোগ করুন।')}</p></div></div>
 
 ${supportChannels()}
 ${liveChat()}

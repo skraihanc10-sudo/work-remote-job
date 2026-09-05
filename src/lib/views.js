@@ -276,7 +276,7 @@ function layout({ title, user, active, body, flash, wide, notices, csrf, bare })
 <title>${esc(title)} | ${SITE}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Figtree:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Figtree:wght@400;500;600&family=Hind+Siliguri:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="/assets/app.css?v=${CSS_V}">
 ${verifyTags()}
 </head>
@@ -440,4 +440,39 @@ function mmss(seconds) {
   return `${m}m ${String(s).padStart(2, '0')}s`;
 }
 
-module.exports = { esc, br, layout, card, field, statusPill, money: money_, ago, mmss, SITE };
+/* ---------------------------------------------------------------------------
+   Bangla beside English.
+
+   Almost everybody here reads Bangla; a good number are more comfortable with
+   English for the words the internet already taught them. So the site is
+   mixed rather than translated, and mixed by rule rather than by mood:
+
+     English stays  for the words people already use in English - Dashboard,
+                    Wallet, Login, Task, bKash. Translating those makes a page
+                    harder to read, not easier.
+
+     Bangla is added where misreading a line costs somebody money or their
+                    account: what a payment will do, why work was refused, what
+                    a rule actually forbids, what a button is about to commit
+                    them to.
+
+   Nothing is Bangla-only. An English sentence with the Bangla underneath can
+   be read by everyone; a Bangla-only one shuts out the people who searched in
+   English to get here.
+   --------------------------------------------------------------------------- */
+
+// The Bangla half on its own, for putting under a heading or an alert.
+const bn = text => (text ? `<span class="bn">${esc(text)}</span>` : '');
+
+// English first, Bangla after. The order matters: the English is the label
+// people scan for, the Bangla is the explanation they slow down for.
+const both = (en, bnText) => `${esc(en)}${bnText ? ` ${bn(bnText)}` : ''}`;
+
+// A paragraph in both, the Bangla on its own line underneath.
+const para = (en, bnText) =>
+  `<p class="muted">${esc(en)}${bnText ? `<br><span class="bn">${esc(bnText)}</span>` : ''}</p>`;
+
+module.exports = {
+  esc, br, layout, card, field, statusPill, money: money_, ago, mmss, SITE,
+  bn, both, para,
+};

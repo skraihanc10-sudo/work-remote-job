@@ -34,8 +34,14 @@
   --red-bg:    #FBECEA;
   --blue:      #1E3A5F;
 
-  --ui:   "Figtree", system-ui, -apple-system, sans-serif;
-  --head: "Archivo", "Figtree", system-ui, sans-serif;
+  /* Hind Siliguri sits after the Latin faces rather than instead of them:
+     the browser takes each character from the first font that actually has a
+     glyph for it, so English keeps Figtree and Bangla gets a face designed
+     for it. Without this, Bangla falls back to whatever the device happens to
+     own - Nirmala on Windows, something else on an Android phone - and the
+     same sentence looks different to every person reading it. */
+  --ui:   "Figtree", "Hind Siliguri", system-ui, -apple-system, sans-serif;
+  --head: "Archivo", "Figtree", "Hind Siliguri", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
 }
 

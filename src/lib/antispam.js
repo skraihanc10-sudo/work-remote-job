@@ -36,10 +36,10 @@ function daysAgo(n) {
    says what to do next rather than just refusing. */
 function canStart(worker, job) {
   if (worker.status !== 'active') {
-    return { allowed: false, code: 'suspended', reason: 'Your account is suspended.' };
+    return { allowed: false, code: 'suspended', reason: 'Your account is suspended. / আপনার অ্যাকাউন্ট সাময়িকভাবে বন্ধ আছে।' };
   }
   if (worker.id === job.merchant_id) {
-    return { allowed: false, code: 'own_job', reason: 'This is your own job.' };
+    return { allowed: false, code: 'own_job', reason: 'This is your own job. / এটি আপনার নিজের দেওয়া কাজ।' };
   }
   /* An unconfirmed address cannot take work.
 
@@ -51,17 +51,18 @@ function canStart(worker, job) {
   if (!worker.email_verified) {
     return {
       allowed: false, code: 'unverified',
-      reason: 'Confirm your email address first. Check your inbox for the link, or ask for a new one on your account page.',
+      reason: 'Confirm your email address first. Check your inbox for the link, or ask for a new one on your account page. / আগে ইমেইল কনফার্ম করুন - ইনবক্সে লিংক আছে, নাহলে অ্যাকাউন্ট পেজ থেকে আবার পাঠান।',
     };
   }
   if (job.status !== 'active') {
-    return { allowed: false, code: 'closed', reason: 'This job is no longer taking work.' };
+    return { allowed: false, code: 'closed', reason: 'This job is no longer taking work. / এই কাজটি আর নেওয়া হচ্ছে না।' };
   }
   if (job.slots_filled >= job.slots) {
-    return { allowed: false, code: 'full', reason: 'Every slot on this job is taken.' };
+    return { allowed: false, code: 'full', reason: 'Every slot on this job is taken. / এই কাজের সব স্লট শেষ হয়ে গেছে।' };
   }
   if (job.country && worker.country && job.country !== worker.country) {
-    return { allowed: false, code: 'country', reason: `This job is only for workers in ${job.country}.` };
+    return { allowed: false, code: 'country',
+      reason: `This job is only for workers in ${job.country}. / এই কাজটি শুধু ${job.country}-এর ওয়ার্কারদের জন্য।` };
   }
 
   // Level gate. Required late to avoid a circular require between the two
@@ -89,8 +90,8 @@ function canStart(worker, job) {
       allowed: false,
       code: 'already_done',
       reason: already.status === 'started'
-        ? 'You already have this task open.'
-        : 'You have already done this job. Each job can be done once per worker.',
+        ? 'You already have this task open. / এই কাজটি আপনার কাছে খোলা আছে।'
+        : 'You have already done this job. Each job can be done once per worker. / এই কাজটি আপনি করে ফেলেছেন - একটি কাজ একজন একবারই করতে পারবেন।',
     };
   }
 
@@ -105,7 +106,8 @@ function canStart(worker, job) {
     return {
       allowed: false,
       code: 'merchant_cap',
-      reason: `You have taken ${perMerchant} tasks from this buyer today. Try another buyer, or come back tomorrow.`,
+      reason: `You have taken ${perMerchant} tasks from this buyer today. Try another buyer, or come back tomorrow.`
+        + ` / আজ এই বায়ারের ${perMerchant}টি কাজ নিয়ে ফেলেছেন - অন্য বায়ারের কাজ দেখুন, বা কাল আসুন।`,
     };
   }
 
@@ -119,7 +121,8 @@ function canStart(worker, job) {
     return {
       allowed: false,
       code: 'daily_cap',
-      reason: `You have reached today's limit of ${perDay} tasks. The limit resets at midnight UTC.`,
+      reason: `You have reached today's limit of ${perDay} tasks. The limit resets at midnight UTC.`
+        + ` / আজকের ${perDay}টি কাজের সীমা শেষ - রাত ১২টার পর আবার শুরু হবে।`,
     };
   }
 
@@ -132,7 +135,7 @@ function canStart(worker, job) {
     return {
       allowed: false,
       code: 'too_many_open',
-      reason: 'Finish or drop one of your open tasks first. You can hold three at a time.',
+      reason: 'Finish or drop one of your open tasks first. You can hold three at a time. / আগে চলমান কাজগুলোর একটি শেষ করুন বা বাদ দিন - একসাথে সর্বোচ্চ তিনটি রাখা যায়।',
     };
   }
 
