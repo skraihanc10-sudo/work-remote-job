@@ -558,6 +558,12 @@ const DEFAULTS = {
   // Where support actually happens. Every one of these is optional and is
   // hidden everywhere on the site until it is filled in, so a half-configured
   // install never shows a dead link.
+  /* Meta tags that prove we own the domain, one `name=value` per line.
+
+     Cryptomus, Google Search Console, Facebook and Bing all work this way. Put
+     here rather than in the code so adding one is a save, not a deploy. */
+  verify_meta: '',
+
   whatsapp_number: '',
   whatsapp_text: 'Hello, I need help with my Remote Work BD account.',
   facebook_page: '',

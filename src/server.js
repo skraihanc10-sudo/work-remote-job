@@ -3561,6 +3561,9 @@ const EDITABLE = [
   { key: 'business_address', label: 'Registered address', text: true, group: 'Business details' },
   { key: 'business_reg', label: 'Business registration / trade licence', text: true, group: 'Business details' },
 
+  { key: 'verify_meta', label: 'Domain ownership tags', text: true, group: 'Business details',
+    hint: 'One per line, as name=value. What Cryptomus, Google Search Console and Facebook hand you to prove the domain is yours. Example: cryptomus=613393ab-...' },
+
   { key: 'telegram_channel', label: 'Telegram channel', text: true, group: 'Support channels',
     hint: 'Announcements, one way. Full link: https://t.me/yourchannel' },
   { key: 'telegram_support', label: 'Telegram support chat', text: true, group: 'Support channels',

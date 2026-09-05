@@ -213,6 +213,37 @@ function tabbar(user, active) {
   </nav>`;
 }
 
+/* Site-ownership meta tags.
+
+   Cryptomus, Google Search Console, Facebook and Bing all prove you own a
+   domain the same way: they give you a token, and you put it somewhere only
+   the owner could. A meta tag is the least painful of the options they offer -
+   no DNS record to wait on, and nothing to re-do when the domain moves host.
+
+   Stored as `name=value` lines in settings rather than written into the code,
+   so adding one is a save rather than a deploy. Both halves are escaped: this
+   is text an admin typed being put into the page head, and a settings field
+   that can inject markup is a stored cross-site scripting hole even when only
+   an admin can reach it.
+*/
+function verifyTags() {
+  const raw = getSetting('verify_meta', '');
+  if (!raw) return '';
+  return String(raw).split(/[\r\n]+/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      const at = line.indexOf('=');
+      if (at < 1) return '';
+      const name = line.slice(0, at).trim();
+      const content = line.slice(at + 1).trim();
+      if (!name || !content) return '';
+      return `<meta name="${esc(name)}" content="${esc(content)}">`;
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
 function layout({ title, user, active, body, flash, wide, notices, csrf, bare }) {
   const bal = user ? money.balance(user.id) : 0;
   return `<!DOCTYPE html>
@@ -225,6 +256,7 @@ function layout({ title, user, active, body, flash, wide, notices, csrf, bare })
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Figtree:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="/assets/app.css?v=${CSS_V}">
+${verifyTags()}
 </head>
 <body>
 
