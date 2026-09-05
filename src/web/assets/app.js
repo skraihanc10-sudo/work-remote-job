@@ -230,3 +230,26 @@
     if (e.key === 'Escape' && !drawer.hidden) open(false);
   });
 })();
+
+/* The withdrawal form: a bank transfer needs two more fields than a wallet
+   does. Hidden rather than absent so the values survive switching back and
+   forth, and marked required only while they are actually showing - a
+   required field the browser cannot see blocks the form with no visible
+   explanation. */
+(function () {
+  'use strict';
+  var form = document.getElementById('withdraw-form');
+  if (!form) return;
+  var method = document.getElementById('w-method');
+  var bank = document.getElementById('bank-only');
+  if (!method || !bank) return;
+
+  function sync() {
+    var isBank = method.value === 'bank';
+    bank.hidden = !isBank;
+    var fields = bank.querySelectorAll('input');
+    for (var i = 0; i < fields.length; i++) fields[i].required = isBank;
+  }
+  method.addEventListener('change', sync);
+  sync();
+})();

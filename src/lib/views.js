@@ -80,6 +80,7 @@ const ADMIN_TOOLS = [
   { href: '/admin/support', label: 'Support', key: 'support' },
   { href: '/admin/connections', label: 'Connections', key: 'connections' },
   { href: '/admin/gateway', label: 'Gateway', key: 'gateway' },
+  { href: '/admin/prizes', label: 'Prize', key: 'prizes' },
   { href: '/admin/mail', label: 'Email', key: 'mail' },
   { href: '/admin/settings', label: 'Settings', key: 'settings' },
 ];
@@ -138,6 +139,7 @@ function navItems(user) {
     { href: '/worker/tasks', label: 'My tasks', key: 'tasks', tab: true, icon: 'list' },
     { href: '/wallet', label: 'Wallet', key: 'wallet', tab: true, icon: 'cash' },
     { href: '/referrals', label: 'Refer', key: 'referrals', tab: true, icon: 'gift' },
+    { href: '/leaderboard', label: 'Prize', key: 'prizes' },
     { href: '/support', label: 'Support', key: 'support' },
     { href: '/account', label: 'Account', key: 'account' },
   ];

@@ -491,6 +491,100 @@ const MIGRATIONS = [
       CREATE INDEX idx_attempt_ip ON login_attempts(ip, created_at);
     `,
   },
+  {
+    id: 8,
+    name: 'payout details, cancelling a withdrawal, payment proof, monthly prize',
+    sql: `
+      /* Where a withdrawal is actually going.
+
+         One free-text "where to send it" box was not enough. A bKash number
+         with no account name against it cannot be checked before sending, and
+         a bank transfer needs four separate things that do not fit in one
+         line. Each is its own column so an admin can read them without
+         guessing which half of a sentence is the account number. */
+      ALTER TABLE withdrawals ADD COLUMN account_name TEXT;
+      ALTER TABLE withdrawals ADD COLUMN account_number TEXT;
+      ALTER TABLE withdrawals ADD COLUMN bank_name TEXT;
+      ALTER TABLE withdrawals ADD COLUMN branch TEXT;
+
+      -- The screenshot an admin uploads after actually sending the money.
+      ALTER TABLE withdrawals ADD COLUMN proof_file TEXT;
+
+      -- Withdrawn by the person themselves, while it was still waiting.
+      ALTER TABLE withdrawals ADD COLUMN cancelled_at TEXT;
+
+      CREATE INDEX idx_wd_pending ON withdrawals(status, id DESC);
+
+      /* Payout details worth remembering, so nobody retypes their account
+         number every time. Filled from the last withdrawal they made. */
+      ALTER TABLE users ADD COLUMN payout_name TEXT;
+      ALTER TABLE users ADD COLUMN payout_bank TEXT;
+      ALTER TABLE users ADD COLUMN payout_branch TEXT;
+
+      /* The monthly prize.
+
+         One row per month per winner, written when an admin awards it, so the
+         same month cannot be paid twice and last month's winners stay on
+         record after the leaderboard has moved on. */
+      CREATE TABLE prizes (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        month       TEXT NOT NULL,              -- 'YYYY-MM'
+        place       INTEGER NOT NULL,           -- 1, 2 or 3
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        amount      INTEGER NOT NULL,
+        earned      INTEGER NOT NULL,           -- what they earned that month
+        awarded_by  INTEGER REFERENCES users(id),
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE UNIQUE INDEX idx_prize_once ON prizes(month, place);
+      CREATE INDEX idx_prize_user ON prizes(user_id, id DESC);
+    `,
+  },
+  {
+    id: 9,
+    name: 'allow a cancelled withdrawal',
+    sql: `
+      /* Rebuild withdrawals so 'cancelled' is an allowed status.
+
+         SQLite cannot alter a CHECK constraint, so the table is remade and the
+         rows copied across. Done as its own migration rather than by widening
+         migration 8, because 8 has already run on the live database and an
+         applied migration must never change under a deployment's feet.
+      */
+      CREATE TABLE withdrawals_new (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id        INTEGER NOT NULL REFERENCES users(id),
+        amount         INTEGER NOT NULL,
+        method         TEXT NOT NULL,
+        detail         TEXT,
+        status         TEXT NOT NULL DEFAULT 'pending'
+                       CHECK (status IN ('pending','paid','rejected','cancelled')),
+        note           TEXT,
+        account_name   TEXT,
+        account_number TEXT,
+        bank_name      TEXT,
+        branch         TEXT,
+        proof_file     TEXT,
+        cancelled_at   TEXT,
+        created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        reviewed_at    TEXT
+      );
+
+      INSERT INTO withdrawals_new
+        (id, user_id, amount, method, detail, status, note,
+         account_name, account_number, bank_name, branch, proof_file, cancelled_at,
+         created_at, reviewed_at)
+      SELECT id, user_id, amount, method, detail, status, note,
+             account_name, account_number, bank_name, branch, proof_file, cancelled_at,
+             created_at, reviewed_at
+      FROM withdrawals;
+
+      DROP TABLE withdrawals;
+      ALTER TABLE withdrawals_new RENAME TO withdrawals;
+      CREATE INDEX idx_wd_pending ON withdrawals(status, id DESC);
+      CREATE INDEX idx_wd_user ON withdrawals(user_id, id DESC);
+    `,
+  },
 ];
 
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (
@@ -548,6 +642,11 @@ const DEFAULTS = {
   // somebody else's earnings is not a reward, it is a transfer.
   // Share of our fee on a referred worker's approved task:
   referral_task_bps: '1500',
+  /* Paid once, to the referrer, the first time somebody they invited has work
+     approved. A flat amount is what was promised on the referral page, and a
+     promise of "twenty taka" that pays a percentage of something invisible is
+     not a promise anybody can check. Still funded out of our commission. */
+  referral_flat: '2000',         // 20
   // Share of a referred buyer's deposit:
   referral_deposit_bps: '100',
   // Review deadline, in days. A buyer who does not decide inside this window
@@ -556,10 +655,23 @@ const DEFAULTS = {
   max_ttr_days: '14',
   // Worker levels: tasks approved needed for each, and the satisfaction rate
   // that must be held to stay there.
-  level2_tasks: '25',
-  level3_tasks: '100',
-  level4_tasks: '400',
+  /* Worker levels, by what they have actually earned from approved work.
+
+     Earnings rather than a count of tasks: a hundred tasks worth five taka
+     each is not the same standing as twenty worth two hundred, and the number
+     people care about is the one in their wallet. Stored in paisa. */
+  level_silver: '100000',        // 1,000
+  level_gold: '500000',          // 5,000
+  level_maxgold: '2000000',      // 20,000
+  // A level still has to be held with decent work, so a poor satisfaction
+  // rate keeps somebody at New however much they have earned.
   level_min_rate: '80',
+
+  /* The monthly prize for the busiest workers, and what it takes to enter. */
+  prize_first: '300000',         // 3,000
+  prize_second: '200000',        // 2,000
+  prize_third: '100000',         // 1,000
+  prize_min_earned: '100000',    // 1,000 earned that month to qualify
 
   // Where support actually happens. Every one of these is optional and is
   // hidden everywhere on the site until it is filled in, so a half-configured

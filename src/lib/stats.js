@@ -46,10 +46,19 @@ function people() {
 /* Where every unit on the site currently is.
 
    The identity that must always hold:
-     deposits + admin credits - admin debits = balances + escrow remaining
-   If these two disagree, something has created or destroyed money and that is
-   the first thing an admin should be told - so it is on the dashboard rather
-   than buried in a script nobody runs.
+
+     what came in  =  what is still here  +  what has gone out
+     deposits + admin adjustments = balances + escrow + withdrawals paid
+
+   The last term is the one that is easy to forget, and forgetting it was a
+   real bug: without it the check passed only while nobody had ever been paid,
+   and the dashboard would have started shouting that money was missing the
+   first time a withdrawal went through. Money leaving by an approved
+   withdrawal is not missing money - it is the site working.
+
+   If these two sides disagree, something has created or destroyed money, and
+   that is the first thing an admin should be told - so it is on the dashboard
+   rather than buried in a script nobody runs.
 */
 function money() {
   const kinds = db.prepare(
@@ -60,6 +69,14 @@ function money() {
   const balances = db.prepare('SELECT COALESCE(SUM(amount), 0) AS n FROM ledger').get().n;
   const escrow = num('SELECT COALESCE(SUM(held - released - refunded), 0) AS n FROM escrow');
 
+  /* Money that has actually left, and money on its way out.
+
+     A hold debits the balance the moment somebody asks; a return credits it
+     back if the request is refused or cancelled. What is left is the total
+     that has either been paid or is sitting in the queue waiting to be, and
+     either way it is no longer in anybody's balance. */
+  const outflow = -((kinds.withdrawal_hold || 0) + (kinds.withdrawal_return || 0));
+
   return {
     deposited: kinds.deposit || 0,
     adminAdded: kinds.admin_credit || 0,
@@ -67,13 +84,17 @@ function money() {
     earned: kinds.task_earning || 0,
     fees: kinds.platform_fee || 0,
     referralPaid: kinds.referral || 0,
-    withdrawn: -(kinds.withdrawal || 0),
+    // What has genuinely been sent, not what has merely been asked for.
+    withdrawn: num("SELECT COALESCE(SUM(amount), 0) AS n FROM withdrawals WHERE status = 'paid'"),
     escrow,
     balances,
     inflow,
+    outflow,
+    // Of that outflow, what is still queued rather than gone.
+    outflowPending: num("SELECT COALESCE(SUM(amount), 0) AS n FROM withdrawals WHERE status = 'pending'"),
     // The whole point of the section.
-    balanced: inflow === balances + escrow,
-    drift: inflow - (balances + escrow),
+    balanced: inflow === balances + escrow + outflow,
+    drift: inflow - (balances + escrow + outflow),
 
     pendingDeposits: num("SELECT COUNT(*) AS n FROM deposits WHERE status = 'pending'"),
     pendingWithdrawals: num("SELECT COUNT(*) AS n FROM withdrawals WHERE status = 'pending'"),
@@ -297,6 +318,83 @@ function buyers(limit = 100) {
     .sort((a, z) => z.behaviour.concerns.length - a.behaviour.concerns.length);
 }
 
+// ------------------------------------------------------ the monthly prize
+/* Who has earned the most from approved work this month.
+
+   Counted from the ledger rather than a running total, so it cannot drift and
+   nobody has to trust a number they cannot check. A worker below the entry
+   threshold is still listed - seeing how far off you are is the whole point of
+   showing it - but marked as not yet qualifying.
+*/
+function monthOf(date) {
+  return (date || new Date()).toISOString().slice(0, 7);
+}
+
+function leaderboard(month, limit = 25) {
+  const m = month || monthOf();
+  const minEarned = numSetting('prize_min_earned');
+
+  const rows = db.prepare(`
+    SELECT u.id, u.name, u.status,
+           COALESCE(SUM(l.amount), 0) AS earned,
+           COUNT(l.id) AS tasks
+    FROM ledger l
+    JOIN users u ON u.id = l.user_id
+    WHERE l.kind = 'task_earning'
+      AND strftime('%Y-%m', l.created_at) = ?
+      AND u.role = 'worker' AND u.status != 'banned'
+    GROUP BY u.id
+    ORDER BY earned DESC, tasks DESC, u.id ASC
+    LIMIT ?
+  `).all(m, limit);
+
+  const prizes = [numSetting('prize_first'), numSetting('prize_second'), numSetting('prize_third')];
+  const awarded = db.prepare('SELECT * FROM prizes WHERE month = ?').all(m)
+    .reduce((a, r) => (a[r.place] = r, a), {});
+
+  return {
+    month: m,
+    minEarned,
+    prizes,
+    awarded,
+    // Awarding is all-or-nothing for a month, so one flag answers "is this done".
+    done: Object.keys(awarded).length > 0,
+    rows: rows.map((r, i) => ({
+      ...r,
+      place: i + 1,
+      qualifies: r.earned >= minEarned,
+      // Only a qualifying worker in the top three is due anything.
+      prize: (i < 3 && r.earned >= minEarned) ? prizes[i] : 0,
+    })),
+  };
+}
+
+/* Months that have any earnings at all, newest first, so an admin can look
+   back at one they have not paid yet. */
+function prizeMonths(limit = 12) {
+  return db.prepare(`
+    SELECT strftime('%Y-%m', created_at) AS month,
+           COALESCE(SUM(amount), 0) AS earned
+    FROM ledger WHERE kind = 'task_earning'
+    GROUP BY month ORDER BY month DESC LIMIT ?
+  `).all(limit);
+}
+
+/* Where somebody stands this month, for their own dashboard. */
+function myPlace(userId, month) {
+  const board = leaderboard(month, 500);
+  const me = board.rows.find(r => r.id === userId);
+  return {
+    month: board.month,
+    minEarned: board.minEarned,
+    earned: me ? me.earned : 0,
+    place: me ? me.place : null,
+    qualifies: me ? me.qualifies : false,
+    entrants: board.rows.filter(r => r.qualifies).length,
+    prizes: board.prizes,
+  };
+}
+
 // ------------------------------------------------------------- leaderboards
 function topWorkers(limit = 8) {
   return db.prepare(`
@@ -325,6 +423,7 @@ function topBuyers(limit = 8) {
 
 module.exports = {
   people, money, work, queue, series,
+  leaderboard, prizeMonths, myPlace, monthOf,
   buyerBehaviour, buyers, topWorkers, topBuyers,
   daysAgo,
 };

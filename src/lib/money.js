@@ -246,22 +246,88 @@ function refundRemaining(jobId, reason) {
 }
 
 // ---------------------------------------------------------------- withdraw
-function requestWithdrawal(userId, amount, method, detail) {
+/* Ask for a payout.
+
+   `payout` carries the account it should go to, in separate fields rather
+   than one line of free text: an admin about to send real money needs to read
+   the account name and the number apart from each other, and a bank transfer
+   needs four things that do not fit in a sentence.
+*/
+function requestWithdrawal(userId, amount, method, payout) {
   const min = numSetting('min_withdrawal');
   if (amount < min) throw new Error(`The smallest withdrawal is ${fmt(min)}`);
   if (balance(userId) < amount) throw new Error('That is more than your balance');
+
+  const name = String(payout.accountName || '').trim();
+  const number = String(payout.accountNumber || '').trim();
+  const bank = String(payout.bankName || '').trim();
+  const branch = String(payout.branch || '').trim();
+
+  if (name.length < 3) throw new Error('Give the account holder name, exactly as it is registered.');
+  if (number.length < 6) throw new Error('Give the account or wallet number.');
+  if (method === 'bank') {
+    if (bank.length < 2) throw new Error('Give the bank name.');
+    if (branch.length < 2) throw new Error('Give the branch name.');
+  }
+
+  // One line for the places that still show a single description.
+  const detail = method === 'bank'
+    ? `${name} - ${bank}, ${branch} - ${number}`
+    : `${name} - ${number}`;
 
   db.exec('BEGIN IMMEDIATE');
   try {
     // Debit immediately so the same balance cannot be withdrawn twice while
     // the first request is still sitting in the admin queue.
-    const info = db.prepare(
-      'INSERT INTO withdrawals (user_id, amount, method, detail) VALUES (?, ?, ?, ?)'
-    ).run(userId, amount, method, detail || null);
+    const info = db.prepare(`
+      INSERT INTO withdrawals (user_id, amount, method, detail,
+                               account_name, account_number, bank_name, branch)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(userId, amount, method, detail, name, number, bank || null, branch || null);
     const id = Number(info.lastInsertRowid);
-    entry(userId, 'withdrawal_hold', -amount, { type: 'withdrawal', id }, `Withdrawal requested`);
+    entry(userId, 'withdrawal_hold', -amount, { type: 'withdrawal', id }, 'Withdrawal requested');
+
+    // Remembered so nobody retypes an account number every time.
+    db.prepare(`UPDATE users SET payout_method = ?, payout_detail = ?, payout_name = ?,
+                payout_bank = ?, payout_branch = ? WHERE id = ?`)
+      .run(method, number, name, bank || null, branch || null, userId);
+
     db.exec('COMMIT');
     return id;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+/* Take it back, while nobody has acted on it yet.
+
+   Only the person who asked, and only while it is still pending. The moment
+   an admin has settled it the money has left, and a cancel button that
+   silently did nothing would be worse than no button at all - so this throws
+   with a reason the caller shows them.
+*/
+function cancelWithdrawal(id, userId) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const w = db.prepare('SELECT * FROM withdrawals WHERE id = ? AND user_id = ?').get(id, userId);
+    if (!w) throw new Error('That withdrawal is not yours.');
+    if (w.status !== 'pending') {
+      throw new Error(w.status === 'paid'
+        ? 'That one has already been paid, so it cannot be cancelled.'
+        : 'That withdrawal has already been dealt with.');
+    }
+
+    // Only a row still pending may change, so two taps cannot refund twice.
+    const claimed = db.prepare(
+      "UPDATE withdrawals SET status = 'cancelled', cancelled_at = datetime('now') WHERE id = ? AND status = 'pending'"
+    ).run(id);
+    if (claimed.changes !== 1) throw new Error('That withdrawal has already been dealt with.');
+
+    entry(userId, 'withdrawal_return', w.amount, { type: 'withdrawal', id },
+          'Withdrawal cancelled by you');
+    db.exec('COMMIT');
+    return w.amount;
   } catch (err) {
     db.exec('ROLLBACK');
     throw err;
@@ -298,5 +364,5 @@ function settleWithdrawal(id, approve, note) {
 module.exports = {
   parseAmount, fmt, balance, entry, history,
   adjustBalance, creditDeposit, creditGatewayDeposit, failDeposit, fundJob, escrowOf, escrowRemaining, payForSubmission, refundRemaining, platformUserId,
-  requestWithdrawal, settleWithdrawal,
+  requestWithdrawal, cancelWithdrawal, settleWithdrawal,
 };

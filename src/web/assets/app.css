@@ -1236,3 +1236,110 @@ table.mini td:first-child { width: 46%; }
 }
 .deposit .fine { margin-top: 12px; }
 .manual { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+
+/* ============================================================== withdrawals */
+.withdraw .field { margin-bottom: 14px; }
+.bank-fields { margin-bottom: 4px; }
+
+/* An admin about to send real money needs each detail on its own, readable at
+   a glance and easy to select without catching the label. */
+.wd { border-top: 1px solid var(--line); padding: 16px 18px; }
+.wd:first-of-type { border-top: 0; }
+.wd-open { background: var(--amber-bg); }
+.wd-top { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.wd-top > div:first-child { flex: 1; min-width: 180px; }
+.wd-amt { font-family: var(--head); font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.wd-grid {
+  display: grid; gap: 10px 18px; margin: 12px 0 4px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+.wd-grid > div { display: flex; flex-direction: column; gap: 2px; }
+.wd-grid span { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; }
+.wd-grid b { font-size: 14.5px; word-break: break-word; }
+.wd-grid b i { font-style: normal; font-weight: 400; font-size: 12px; margin-left: 5px; }
+/* Select the whole value in one click - retyping an account number by hand is
+   how a payout reaches the wrong person. */
+.pick { user-select: all; cursor: text; }
+
+.wd-actions {
+  display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start;
+  margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--line);
+}
+.wd-actions form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.wd-actions .fine { flex-basis: 100%; margin: 0; }
+.wd-reject input { min-width: 190px; }
+
+.file-pick {
+  display: inline-flex; align-items: center; gap: 9px; cursor: pointer;
+  border: 1px dashed var(--line); border-radius: 8px; padding: 8px 13px;
+  font-size: 13px; color: var(--ink-2); background: var(--card);
+}
+.file-pick:hover { border-color: var(--green); }
+.file-pick input { max-width: 190px; font-size: 12px; }
+
+/* Bangla beside English, where the Bangla is the part that must not be
+   misread. Slightly larger because the script needs the room. */
+.bn { font-size: 1.04em; color: inherit; }
+h2 .bn, h1 .bn { color: var(--muted); font-weight: 500; font-size: .72em; margin-left: 6px; }
+.alert .bn { display: block; margin: 6px 0; }
+
+/* ============================================================ levels, prize */
+.level-now { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.level-now b { display: block; font-family: var(--head); font-size: 17px; }
+.level-now span.dim { font-size: 13px; }
+
+.lvl-badge {
+  font-family: var(--head); font-weight: 700; font-size: 13px;
+  padding: 7px 15px; border-radius: 100px; white-space: nowrap;
+  background: var(--sunk); color: var(--ink-2);
+}
+.lvl-badge.l1 { background: #E8EDF2; color: #4A5A6A; }
+.lvl-badge.l2 { background: #FBF0D6; color: #8A6714; }
+.lvl-badge.l3 { background: var(--navy); color: #F5D77A; }
+
+.lvl-bar { height: 9px; border-radius: 100px; background: var(--sunk); overflow: hidden; margin-bottom: 9px; }
+.lvl-bar span { display: block; height: 100%; background: var(--green); border-radius: 100px; }
+
+/* The ladder, so the next rung is visible rather than a surprise. */
+.lvl-steps {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+  margin: 16px 0 4px; text-align: center;
+}
+.lvl-steps > div {
+  padding: 9px 4px; border-radius: 8px; background: var(--sunk); opacity: .55;
+}
+.lvl-steps > div.done { background: var(--green-bg); opacity: 1; }
+.lvl-steps b { display: block; font-family: var(--head); font-size: 12.5px; }
+.lvl-steps span { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+.lvl-prize { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.lvl-prize > b { font-family: var(--head); font-size: 14.5px; }
+.lvl-prize p { margin: 5px 0 10px; }
+
+.prize-row {
+  display: grid; gap: 10px; margin-bottom: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+.prize {
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px; text-align: center;
+}
+.prize b { display: block; font-family: var(--head); font-size: 22px; margin: 8px 0 2px; }
+.prize > span:last-child { color: var(--muted); font-size: 12.5px; }
+.prize.p1 { border-color: #E3C55A; }
+
+.medal {
+  display: inline-grid; place-items: center; width: 26px; height: 26px;
+  border-radius: 50%; font-family: var(--head); font-weight: 700; font-size: 12.5px;
+  background: var(--sunk); color: var(--ink-2);
+}
+.medal.m1 { background: #F1D06B; color: #5A4405; }
+.medal.m2 { background: #DCE1E6; color: #4A5560; }
+.medal.m3 { background: #E8C9A8; color: #6B4522; }
+.row-me { background: var(--green-bg); }
+.me-standing { margin-bottom: 18px; }
+
+@media (max-width: 560px) {
+  .lvl-steps { grid-template-columns: repeat(2, 1fr); }
+}

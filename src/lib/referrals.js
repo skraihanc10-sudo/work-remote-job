@@ -87,11 +87,32 @@ function reward({ kind, sourceId, referredId, basis }) {
   const referrerId = referrerOf(referredId);
   if (!referrerId) return null;
 
-  const bps = numSetting(kind === 'task' ? 'referral_task_bps' : 'referral_deposit_bps');
-  if (!bps) return null;
+  let amount;
+  if (kind === 'task') {
+    /* A flat amount, once, the first time somebody they invited has work
+       approved.
 
-  const amount = Math.floor((basis * bps) / 10000);
-  if (amount <= 0) return null;
+       It used to be a share of our commission on every task they ever did,
+       which sounds more generous and is impossible for anybody to check: the
+       commission is invisible to them, so "you earn a percentage" is a promise
+       with no number attached. The referral page says twenty taka, so twenty
+       taka is what arrives, on a day they can point at.
+
+       Paid once per referred person, not once per task - the unique index is
+       on (kind, source_id), so the source here is the person, not the task. */
+    const already = db.prepare(
+      "SELECT 1 FROM referral_earnings WHERE kind = 'task' AND source_id = ?"
+    ).get(referredId);
+    if (already) return null;
+    sourceId = referredId;
+    amount = numSetting('referral_flat');
+  } else {
+    const bps = numSetting('referral_deposit_bps');
+    if (!bps) return null;
+    amount = Math.floor((basis * bps) / 10000);
+  }
+
+  if (!amount || amount <= 0) return null;
 
   const referrer = db.prepare('SELECT status FROM users WHERE id = ?').get(referrerId);
   if (!referrer || referrer.status === 'banned') return null;
@@ -114,7 +135,9 @@ function reward({ kind, sourceId, referredId, basis }) {
     throw err;
   }
 
-  const label = kind === 'task' ? 'a task your referral completed' : 'a deposit by your referral';
+  const label = kind === 'task'
+    ? 'somebody you invited starting work'
+    : 'a deposit by your referral';
   money.entry(referrerId, 'referral', amount, { type: 'referral', id: sourceId },
     `Referral bonus from ${label}`);
   money.entry(platformId, 'referral_paid', -amount, { type: 'referral', id: sourceId },

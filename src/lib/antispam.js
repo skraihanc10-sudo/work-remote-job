@@ -73,7 +73,9 @@ function canStart(worker, job) {
       return {
         allowed: false, code: 'level',
         reason: `This job needs ${quality.levelName(job.min_level)} level or above. You are ${standing.name}`
-          + (standing.next ? ` - ${standing.next.tasks} approved tasks at ${standing.next.minRate}% or better reaches ${standing.next.name}.` : '.'),
+          + (standing.next
+            ? ` - another ${require('./money').fmt(standing.next.remaining)} of approved work reaches ${standing.next.name}.`
+            : '.'),
       };
     }
   }

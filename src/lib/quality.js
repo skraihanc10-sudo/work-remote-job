@@ -17,12 +17,25 @@ const { db, numSetting, audit } = require('./db');
 const money = require('./money');
 
 // ------------------------------------------------------------------- levels
+/* Levels, earned by what somebody has actually been paid for approved work.
+
+   Earnings rather than a count of tasks: a hundred tasks at five taka is not
+   the same standing as twenty at two hundred, and the number a worker cares
+   about is the one that reached their wallet. It is also the number they can
+   check for themselves, which a level nobody can verify is not.
+*/
 const LEVELS = [
-  { level: 0, name: 'New',    note: 'Just started' },
-  { level: 1, name: 'Bronze', note: 'Getting going' },
-  { level: 2, name: 'Silver', note: 'Reliable' },
-  { level: 3, name: 'Gold',   note: 'Trusted' },
+  { level: 0, name: 'New',      note: 'Just started', key: null },
+  { level: 1, name: 'Silver',   note: 'Getting going', key: 'level_silver' },
+  { level: 2, name: 'Gold',     note: 'Reliable', key: 'level_gold' },
+  { level: 3, name: 'Max Gold', note: 'Top tier', key: 'level_maxgold' },
 ];
+
+// What each level is worth, read fresh so an admin can move a threshold
+// without a deploy.
+function thresholds() {
+  return LEVELS.map(l => (l.key ? numSetting(l.key) : 0));
+}
 
 /* A worker's standing, computed rather than stored, so it can never disagree
    with their actual history. Satisfaction is approved over decided - work
@@ -35,31 +48,49 @@ function workerStanding(userId) {
     FROM submissions WHERE worker_id = ?
   `).get(userId);
 
+  // What they have been paid for approved work, all time.
+  const earned = db.prepare(
+    "SELECT COALESCE(SUM(amount), 0) AS n FROM ledger WHERE user_id = ? AND kind = 'task_earning'"
+  ).get(userId).n;
+
   const approved = r.approved || 0;
   const rejected = r.rejected || 0;
   const decided = approved + rejected;
   const rate = decided ? Math.round((approved / decided) * 100) : null;
   const minRate = numSetting('level_min_rate');
+  const bands = thresholds();
 
   let level = 0;
-  // A high count does not carry a poor satisfaction rate: somebody who has
-  // done four hundred tasks and had a quarter rejected is not "trusted".
+  /* Earnings alone do not carry a poor satisfaction rate. Somebody who has
+     earned twenty thousand while having a quarter of their work rejected is
+     not the top tier, and a level that ignored that would be worth nothing to
+     the buyers who use it to choose who may take their jobs. */
   if (rate === null || rate >= minRate) {
-    if (approved >= numSetting('level4_tasks')) level = 3;
-    else if (approved >= numSetting('level3_tasks')) level = 2;
-    else if (approved >= numSetting('level2_tasks')) level = 1;
+    for (let i = LEVELS.length - 1; i >= 1; i--) {
+      if (earned >= bands[i]) { level = i; break; }
+    }
   }
 
+  const next = level < 3 ? {
+    name: LEVELS[level + 1].name,
+    at: bands[level + 1],
+    remaining: Math.max(0, bands[level + 1] - earned),
+    // How far along they are, for a bar they can watch move.
+    percent: bands[level + 1] > 0
+      ? Math.min(100, Math.max(0, Math.round((earned / bands[level + 1]) * 100)))
+      : 0,
+    minRate,
+  } : null;
+
   return {
-    approved, rejected, decided, rate, level,
+    approved, rejected, decided, rate, level, earned,
     name: LEVELS[level].name,
     note: LEVELS[level].note,
-    // What it takes to reach the next one, so the number means something.
-    next: level < 3 ? {
-      name: LEVELS[level + 1].name,
-      tasks: numSetting(['level2_tasks', 'level3_tasks', 'level4_tasks'][level]),
-      minRate,
-    } : null,
+    at: bands[level],
+    // True when earnings would carry a higher level but the rate is holding
+    // them back - worth saying out loud rather than leaving them puzzled.
+    heldBack: rate !== null && rate < minRate && earned >= bands[1],
+    next,
   };
 }
 
@@ -188,7 +219,7 @@ function releaseOverdue() {
 }
 
 module.exports = {
-  LEVELS, levelName, workerStanding, buyerStanding,
+  LEVELS, levelName, thresholds, workerStanding, buyerStanding,
   canWorkerRate, rateBuyer,
   deadlineOf, hoursLeft, releaseOverdue,
 };

@@ -2560,30 +2560,115 @@ app.get('/wallet', need(), (req, res) => {
       </details>
     </div>`;
 
-  const withdraw = u.role === 'worker' ? `
+  /* Taking money out.
+
+     The account fields are separate on purpose. An admin about to send real
+     money has to read the holder's name apart from the number to check they
+     match, and a bank transfer needs four things that will not fit in one
+     line of free text.
+
+     The warning about personal accounts is the one thing on this page that
+     stops a payment failing: bKash and Nagad refuse a normal send to an agent
+     or merchant wallet, and the money bounces back days later with nobody
+     sure why.
+  */
+  const pending = db.prepare(
+    "SELECT * FROM withdrawals WHERE user_id = ? AND status = 'pending' ORDER BY id DESC"
+  ).all(u.id);
+
+  const saved = {
+    method: u.payout_method || 'bkash',
+    number: u.payout_detail || '',
+    name: u.payout_name || u.name || '',
+    bank: u.payout_bank || '',
+    branch: u.payout_branch || '',
+  };
+
+  const withdraw = u.role !== 'worker' ? '' : `
     <div class="card pad">
-      <h2>Withdraw</h2>
+      <h2>Withdraw <span class="bn">টাকা তুলুন</span></h2>
       <p class="muted">Smallest withdrawal is ${V.money(numSetting('min_withdrawal'))}.
-         The amount leaves your balance straight away and is paid out after review.</p>
-      <form method="post" action="/wallet/withdraw">
+         The amount leaves your balance straight away and is paid out after an admin
+         checks it.</p>
+
+      ${pending.length ? `
+      <div class="alert alert-info">
+        <b>${pending.length} withdrawal${pending.length === 1 ? '' : 's'} waiting.</b>
+        You can cancel any of them below until an admin pays it.
+      </div>` : ''}
+
+      <div class="alert alert-warn">
+        <b>Use a personal account, not an agent or merchant one.</b>
+        <span class="bn">এজেন্ট বা মার্চেন্ট নম্বরে টাকা পাঠানো যায় না &mdash; অবশ্যই
+          পার্সোনাল bKash / Nagad / Rocket নম্বর দিন।</span>
+        A send to an agent or merchant wallet is refused by bKash and Nagad, and the
+        payment comes back days later with nobody sure why.
+      </div>
+
+      <form method="post" action="/wallet/withdraw" class="withdraw" id="withdraw-form">
         ${csrfField(req)}
-        <div class="row-2">
-          ${V.field({ label: 'Amount', name: 'amount', required: true })}
-          ${V.field({ label: 'Method', name: 'method', type: 'select', options: [
-            { value: 'bkash', label: 'bKash' }, { value: 'nagad', label: 'Nagad' },
-            { value: 'bank', label: 'Bank transfer' }] })}
+
+        ${V.field({ label: 'Amount', name: 'amount', required: true,
+          hint: `In ${V.esc(getSetting('currency'))}. You have ${V.money(money.balance(u.id))}.` })}
+
+        <div class="field">
+          <label for="w-method">Send it to</label>
+          <select id="w-method" name="method">
+            ${[['bkash', 'bKash (personal)'], ['nagad', 'Nagad (personal)'],
+               ['rocket', 'Rocket (personal)'], ['bank', 'Bank transfer']]
+              .map(([v, l]) => `<option value="${v}"${saved.method === v ? ' selected' : ''}>${l}</option>`).join('')}
+          </select>
         </div>
-        ${V.field({ label: 'Where to send it', name: 'detail', required: true,
-          placeholder: 'Your number or account' })}
+
+        ${V.field({ label: 'Account holder name', name: 'account_name', required: true,
+          value: saved.name,
+          hint: 'Exactly as it is registered on the account. A name that does not match is why a payout fails.' })}
+
+        ${V.field({ label: 'Number or account', name: 'account_number', required: true,
+          value: saved.number, placeholder: '01XXXXXXXXX',
+          hint: 'Your personal wallet number, or the account number for a bank.' })}
+
+        <div id="bank-only" class="bank-fields" hidden>
+          <div class="row-2">
+            ${V.field({ label: 'Bank name', name: 'bank_name', value: saved.bank,
+              placeholder: 'For example Dutch-Bangla Bank' })}
+            ${V.field({ label: 'Branch name', name: 'branch', value: saved.branch,
+              placeholder: 'The branch the account is held at' })}
+          </div>
+        </div>
+
         <button class="btn" type="submit">Request withdrawal</button>
+        <p class="fine">Nothing is sent until an admin checks it. You can cancel while it waits.</p>
       </form>
-    </div>` : '';
+    </div>` ;
+
+  const pendingList = (u.role !== 'worker' || !pending.length) ? '' : `
+    <div class="card">
+      <div class="card-head"><h2>Waiting to be paid</h2></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Asked</th><th>Amount</th><th>To</th><th></th></tr></thead>
+        <tbody>${pending.map(w => `<tr>
+          <td class="dim">${V.ago(w.created_at)}</td>
+          <td class="num">${V.money(w.amount)}</td>
+          <td>${V.esc(w.method)}<div class="dim">${V.esc(w.detail || '')}</div></td>
+          <td class="right">
+            <form method="post" action="/wallet/withdraw/${w.id}/cancel"
+                  onsubmit="return confirm('Cancel this withdrawal? ${V.esc(V.money(w.amount))} goes back to your balance.')">
+              ${csrfField(req)}
+              <button class="btn btn-ghost btn-sm" type="submit">Cancel</button>
+            </form>
+          </td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
 
   send(req, res, {
     title: 'Wallet', active: 'wallet',
     body: `
 <div class="page-head"><h1>Wallet</h1>
   <div class="big-balance">${V.money(money.balance(u.id))}</div></div>
+
+${pendingList}
 
 <div class="two">
   ${addFunds}${withdraw}
@@ -2638,12 +2723,33 @@ app.post('/wallet/withdraw', need('worker'), active, (req, res) => {
   }
   const amount = money.parseAmount(req.body.amount);
   if (!amount || amount <= 0) return fail(res, 'Enter an amount like 100.00');
+
+  const b = req.body || {};
+  const method = ['bkash', 'nagad', 'rocket', 'bank'].includes(b.method) ? b.method : 'bkash';
+
   try {
-    money.requestWithdrawal(req.user.id, amount,
-      String(req.body.method || 'bkash'), String(req.body.detail || '').trim());
-    back(res, '/wallet', 'Requested. It has left your balance and is queued for payout.', 'ok');
+    money.requestWithdrawal(req.user.id, amount, method, {
+      accountName: b.account_name,
+      accountNumber: b.account_number,
+      bankName: b.bank_name,
+      branch: b.branch,
+    });
+    back(res, '/wallet',
+      'Requested. It has left your balance and is waiting for an admin. You can cancel it until they pay it.',
+      'ok');
   } catch (err) {
     fail(res, err.message);
+  }
+});
+
+/* Take back a withdrawal that has not been paid yet. */
+app.post('/wallet/withdraw/:id/cancel', need('worker'), (req, res) => {
+  try {
+    const amount = money.cancelWithdrawal(Number(req.params.id), req.user.id);
+    audit(req.user.id, 'withdrawal_cancelled', `withdrawal:${req.params.id}`, { amount }, req.ip);
+    back(res, '/wallet', `Cancelled. ${money.fmt(amount)} is back in your balance.`, 'ok');
+  } catch (err) {
+    back(res, '/wallet', err.message, 'fail');
   }
 });
 
@@ -2746,8 +2852,9 @@ app.get('/admin', need('admin'), (req, res) => {
 
 ${m.balanced ? '' : `<div class="alert alert-stop">
   <b>The books do not balance.</b>
-  Deposits and adjustments come to ${V.money(m.inflow)}, but balances plus escrow come to
-  ${V.money(m.balances + m.escrow)} &mdash; a difference of ${V.money(Math.abs(m.drift))}.
+  Deposits and adjustments come to ${V.money(m.inflow)}, but balances plus escrow plus
+  everything withdrawn comes to ${V.money(m.balances + m.escrow + m.outflow)}
+  &mdash; a difference of ${V.money(Math.abs(m.drift))}.
   Money has been created or destroyed somewhere. Stop and find it before anything else.</div>`}
 
 ${w.overdue ? `<div class="alert alert-warn">
@@ -3108,21 +3215,55 @@ app.get('/admin/money', need('admin'), (req, res) => {
   </tr>`).join('') || '<tr><td colspan="6" class="muted pad">No deposits.</td></tr>'}</tbody>
 </table></div></div>
 
-<div class="card"><div class="card-head"><h2>Withdrawals</h2></div>
-<div class="table-wrap"><table>
-  <thead><tr><th>User</th><th>Method</th><th>Send to</th><th class="right">Amount</th><th>State</th><th></th></tr></thead>
-  <tbody>${wds.map(w => `<tr>
-    <td>${V.esc(w.name)}<div class="dim">${V.esc(w.email)}</div></td>
-    <td>${V.esc(w.method)}</td><td class="mono">${V.esc(w.detail || '')}</td>
-    <td class="num right">${V.money(w.amount)}</td><td>${V.statusPill(w.status)}</td>
-    <td class="right">${w.status === 'pending' ? `
-      <form method="post" action="/admin/withdrawals/${w.id}/pay" class="inline">${csrfField(req)}
-        <button class="btn btn-sm" type="submit">Mark paid</button></form>
-      <form method="post" action="/admin/withdrawals/${w.id}/reject" class="inline">${csrfField(req)}
-        <input type="text" name="note" placeholder="Reason" required maxlength="120">
-        <button class="btn btn-ghost btn-sm" type="submit">Reject</button></form>` : ''}</td>
-  </tr>`).join('') || '<tr><td colspan="6" class="muted pad">No withdrawals.</td></tr>'}</tbody>
-</table></div></div>`,
+<div class="card"><div class="card-head"><h2>Withdrawals</h2>
+  <span class="dim">every account detail, so it can be checked before sending</span></div>
+${wds.length ? wds.map(w => `
+<div class="wd ${w.status === 'pending' ? 'wd-open' : ''}">
+  <div class="wd-top">
+    <div>
+      <b>${V.esc(w.name)}</b> <span class="dim">${V.esc(w.email)}</span>
+      <div class="dim">asked ${V.ago(w.created_at)}</div>
+    </div>
+    <div class="wd-amt">${V.money(w.amount)}</div>
+    <div>${V.statusPill(w.status)}</div>
+  </div>
+
+  <div class="wd-grid">
+    <div><span>Send by</span><b>${V.esc(w.method === 'bank' ? 'Bank transfer' : w.method)}
+      ${w.method !== 'bank' ? '<i class="dim">personal wallet</i>' : ''}</b></div>
+    <div><span>Account name</span><b class="pick">${V.esc(w.account_name || '-')}</b></div>
+    <div><span>${w.method === 'bank' ? 'Account number' : 'Number'}</span>
+      <b class="pick mono">${V.esc(w.account_number || w.detail || '-')}</b></div>
+    ${w.method === 'bank' ? `
+      <div><span>Bank</span><b class="pick">${V.esc(w.bank_name || '-')}</b></div>
+      <div><span>Branch</span><b class="pick">${V.esc(w.branch || '-')}</b></div>` : ''}
+  </div>
+
+  ${w.note ? `<p class="fine">Note: ${V.esc(w.note)}</p>` : ''}
+  ${w.proof_file ? `<p class="fine">
+    <a class="link" href="/payout-proof/${V.esc(w.proof_file)}" target="_blank" rel="noopener">
+      See the payment screenshot</a> sent to them.</p>` : ''}
+
+  ${w.status === 'pending' ? `
+  <div class="wd-actions">
+    <form method="post" action="/admin/withdrawals/${w.id}/pay" enctype="multipart/form-data">
+      ${csrfField(req)}
+      <label class="file-pick">
+        <input type="file" name="proof" accept="image/jpeg,image/png,image/webp">
+        <span>Attach the payment screenshot</span>
+      </label>
+      <button class="btn btn-sm" type="submit">Mark paid and send it</button>
+      <span class="fine">The screenshot is optional, but it is what stops "I never got it"
+        turning into an argument nobody can settle.</span>
+    </form>
+    <form method="post" action="/admin/withdrawals/${w.id}/reject" class="wd-reject">
+      ${csrfField(req)}
+      <input type="text" name="note" placeholder="Why you are refusing it" required maxlength="120">
+      <button class="btn btn-ghost btn-sm" type="submit">Reject and refund</button>
+    </form>
+  </div>` : ''}
+</div>`).join('') : '<div class="pad muted">No withdrawals.</div>'}
+</div>`,
   });
 });
 
@@ -3140,12 +3281,44 @@ app.post('/admin/deposits/:id/reject', need('admin'), (req, res) => {
   back(res, '/admin/money', 'Rejected.', 'info');
 });
 
-app.post('/admin/withdrawals/:id/pay', need('admin'), (req, res) => {
+/* Mark a withdrawal paid, with the screenshot of the transfer attached.
+
+   Multipart, so the CSRF check has to run again after multer - the global one
+   skips multipart because the fields are not parsed yet when it runs.
+*/
+app.post('/admin/withdrawals/:id/pay', need('admin'), upload.single('proof'), checkCsrf, (req, res) => {
+  const id = Number(req.params.id);
   try {
-    money.settleWithdrawal(Number(req.params.id), true, 'Paid');
-    audit(req.user.id, 'withdrawal_paid', `withdrawal:${req.params.id}`, null, req.ip);
-    back(res, '/admin/money', 'Marked as paid.', 'ok');
+    // Attached before settling: if the file cannot be recorded, nothing has
+    // been marked paid yet and the admin can try again.
+    if (req.file) {
+      db.prepare("UPDATE withdrawals SET proof_file = ? WHERE id = ? AND status = 'pending'")
+        .run(req.file.filename, id);
+    }
+    money.settleWithdrawal(id, true, 'Paid');
+    audit(req.user.id, 'withdrawal_paid', `withdrawal:${id}`,
+      { proof: req.file ? req.file.filename : null }, req.ip);
+    back(res, '/admin/money',
+      req.file ? 'Marked as paid, with the screenshot attached.' : 'Marked as paid.', 'ok');
   } catch (err) { fail(res, err.message); }
+});
+
+/* The payment screenshot.
+
+   Only the person it was sent to, and an admin. It shows an account number
+   and a name, which is nobody else's business.
+*/
+app.get('/payout-proof/:name', need(), (req, res) => {
+  const name = path.basename(String(req.params.name));
+  const file = path.join(DATA_DIR, 'proofs', name);
+  if (!file.startsWith(path.join(DATA_DIR, 'proofs')) || !fs.existsSync(file)) return res.status(404).end();
+
+  const w = db.prepare('SELECT user_id FROM withdrawals WHERE proof_file = ?').get(name);
+  if (!w) return res.status(404).end();
+  if (req.user.role !== 'admin' && req.user.id !== w.user_id) return res.status(404).end();
+
+  res.setHeader('Cache-Control', 'private, max-age=300');
+  res.sendFile(file);
 });
 
 app.post('/admin/withdrawals/:id/reject', need('admin'), (req, res) => {
@@ -4668,6 +4841,50 @@ app.get('/account', need(), (req, res) => {
     </dl>
   </div>
 
+  ${u.role !== 'worker' ? '' : (() => {
+    const st = quality.workerStanding(u.id);
+    const mine = stats.myPlace(u.id);
+    return `
+  <div class="card pad">
+    <h2>Your level <span class="bn">আপনার লেভেল</span></h2>
+    <div class="level-now">
+      <span class="lvl-badge l${st.level}">${V.esc(st.name)}</span>
+      <div>
+        <b>${V.money(st.earned)} earned</b>
+        <span class="dim">from ${st.approved} approved task${st.approved === 1 ? '' : 's'}</span>
+      </div>
+    </div>
+
+    ${st.next ? `
+      <div class="lvl-bar"><span style="width:${st.next.percent}%"></span></div>
+      <p class="muted">${V.money(st.next.remaining)} more of approved work reaches
+        <b>${V.esc(st.next.name)}</b>.
+        <span class="bn">আর ${V.money(st.next.remaining)} টাকার কাজ করলেই ${V.esc(st.next.name)} হয়ে যাবেন।</span></p>`
+      : `<p class="muted">You are at the top level. <span class="bn">আপনি সর্বোচ্চ লেভেলে আছেন।</span></p>`}
+
+    ${st.heldBack ? `<div class="alert alert-warn">
+      <b>Your earnings would carry a higher level, but too much of your work is being rejected.</b>
+      A level needs ${st.next ? st.next.minRate : numSetting('level_min_rate')}% of decided work
+      approved; yours is ${st.rate}%. Take more care on each task and it will come back.</div>` : ''}
+
+    <div class="lvl-steps">
+      ${quality.LEVELS.map((l, i) => `<div class="${i <= st.level ? 'done' : ''}">
+        <b>${V.esc(l.name)}</b>
+        <span>${i === 0 ? 'from the start' : V.money(quality.thresholds()[i])}</span>
+      </div>`).join('')}
+    </div>
+
+    <div class="lvl-prize">
+      <b>Monthly prize <span class="bn">মাসিক পুরস্কার</span></b>
+      <p class="muted">You have earned ${V.money(mine.earned)} this month
+        ${mine.qualifies
+          ? `and you are in the running${mine.place ? `, currently ${mine.place}${mine.place === 1 ? 'st' : mine.place === 2 ? 'nd' : mine.place === 3 ? 'rd' : 'th'}` : ''}.`
+          : `. Earn ${V.money(Math.max(0, mine.minEarned - mine.earned))} more this month to enter.`}</p>
+      <a class="btn btn-ghost btn-sm" href="/leaderboard">See the board</a>
+    </div>
+  </div>`;
+  })()}
+
   <div class="card pad">
     <h2>Sign-in and security</h2>
 
@@ -5232,6 +5449,218 @@ function liveChat() {
   if (!/^https:\/\//.test(url)) return '';
   return `<script async src="${V.esc(url)}" crossorigin="anonymous"></script>`;
 }
+
+/* ====================================================================
+   The monthly prize.
+
+   Three prizes each month for the workers who earned the most, with a floor
+   to enter so it is a reward for real work rather than a lottery. Everything
+   is counted from the ledger, so anybody can check their own figure against
+   their wallet - a leaderboard nobody can verify is just a poster.
+   ==================================================================== */
+
+function prizeTable(board, meId) {
+  if (!board.rows.length) {
+    return '<div class="pad muted">Nobody has earned anything this month yet. '
+      + 'The first task approved starts the board.</div>';
+  }
+  return `<div class="table-wrap"><table>
+    <thead><tr><th>#</th><th>Worker</th><th class="right">Earned</th>
+      <th class="right">Tasks</th><th>Prize</th></tr></thead>
+    <tbody>${board.rows.map(r => `<tr class="${r.id === meId ? 'row-me' : ''}">
+      <td class="num">${r.place <= 3 && r.qualifies ? `<span class="medal m${r.place}">${r.place}</span>` : r.place}</td>
+      <td>${V.esc(r.name)}${r.id === meId ? ' <span class="pill s-active">you</span>' : ''}</td>
+      <td class="num right">${V.money(r.earned)}</td>
+      <td class="num right">${r.tasks}</td>
+      <td>${r.prize ? `<b class="pos">${V.money(r.prize)}</b>`
+        : r.qualifies ? '<span class="dim">&mdash;</span>'
+        : `<span class="dim">needs ${V.money(board.minEarned - r.earned)} more to enter</span>`}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+app.get('/leaderboard', (req, res) => {
+  const month = /^\d{4}-\d{2}$/.test(String(req.query.m || '')) ? req.query.m : null;
+  const board = stats.leaderboard(month, 25);
+  const months = stats.prizeMonths(6);
+  const mine = req.user && req.user.role === 'worker' ? stats.myPlace(req.user.id, board.month) : null;
+
+  send(req, res, {
+    title: 'Monthly prize',
+    body: `
+<div class="page-head">
+  <div><h1>Monthly prize <span class="bn">মাসিক পুরস্কার</span></h1>
+    <p class="muted">Every month the three workers who earn the most share
+       ${V.money(board.prizes[0] + board.prizes[1] + board.prizes[2])} between them.</p></div>
+  ${months.length > 1 ? `<div class="range">
+    ${months.map(m => `<a class="${m.month === board.month ? 'on' : ''}" href="/leaderboard?m=${m.month}">${m.month}</a>`).join('')}
+  </div>` : ''}
+</div>
+
+<div class="prize-row">
+  ${[0, 1, 2].map(i => `<div class="prize p${i + 1}">
+    <span class="medal m${i + 1}">${i + 1}</span>
+    <b>${V.money(board.prizes[i])}</b>
+    <span>${['First', 'Second', 'Third'][i]} place</span>
+  </div>`).join('')}
+</div>
+
+<div class="alert alert-info">
+  <b>To enter, earn ${V.money(board.minEarned)} from approved work in the month.</b>
+  <span class="bn">অংশ নিতে হলে মাসে কমপক্ষে ${V.money(board.minEarned)} টাকার কাজ শেষ করতে হবে।</span>
+  Only approved work counts, and it is counted from your wallet, so the figure on this
+  page is one you can check yourself.
+</div>
+
+${mine ? `
+<div class="card pad me-standing">
+  <h2>Where you stand</h2>
+  <div class="stat-row">
+    <div class="stat"><b>${mine.place || '--'}</b><span>your place</span></div>
+    <div class="stat ok"><b>${V.money(mine.earned)}</b><span>earned this month</span></div>
+    <div class="stat ${mine.qualifies ? 'ok' : 'warn'}">
+      <b>${mine.qualifies ? 'In' : V.money(Math.max(0, mine.minEarned - mine.earned))}</b>
+      <span>${mine.qualifies ? 'you have qualified' : 'more to qualify'}</span></div>
+    <div class="stat"><b>${mine.entrants}</b><span>workers qualified</span></div>
+  </div>
+</div>` : ''}
+
+<div class="card">
+  <div class="card-head"><h2>${V.esc(board.month)}</h2>
+    ${board.done ? '<span class="pill s-approved">paid out</span>' : '<span class="dim">still running</span>'}</div>
+  ${prizeTable(board, req.user ? req.user.id : null)}
+</div>`,
+  });
+});
+
+/* Awarding a month.
+
+   By hand, and only once per month per place - the unique index sees to that
+   even if the button is pressed twice. Done by hand on purpose: a month can
+   contain a suspended account or somebody an admin is already looking at, and
+   a prize paid automatically to a cheat is very hard to take back.
+*/
+app.get('/admin/prizes', need('admin'), (req, res) => {
+  const month = /^\d{4}-\d{2}$/.test(String(req.query.m || '')) ? req.query.m : null;
+  const board = stats.leaderboard(month, 25);
+  const months = stats.prizeMonths(12);
+  const winners = board.rows.filter(r => r.prize > 0);
+  const paid = db.prepare(`
+    SELECT p.*, u.name FROM prizes p JOIN users u ON u.id = p.user_id
+    ORDER BY p.month DESC, p.place ASC LIMIT 30
+  `).all();
+
+  send(req, res, {
+    title: 'Monthly prize', active: 'prizes', wide: true,
+    body: `
+<div class="page-head">
+  <div><h1>Monthly prize</h1>
+    <p class="muted">The three highest earners each month, from approved work only.</p></div>
+  <div class="range">
+    ${months.map(m => `<a class="${m.month === board.month ? 'on' : ''}" href="/admin/prizes?m=${m.month}">${m.month}</a>`).join('')}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>${V.esc(board.month)}</h2>
+    <a class="link" href="/leaderboard?m=${board.month}">What everyone else sees</a></div>
+  ${prizeTable(board, null)}
+</div>
+
+${board.done ? `<div class="alert alert-ok">
+  <b>This month has been paid.</b>
+  ${Object.values(board.awarded).map(a => `${a.place}. ${V.money(a.amount)}`).join(' &middot; ')}
+</div>` : winners.length ? `
+<form method="post" action="/admin/prizes/award" class="card pad">
+  ${csrfField(req)}
+  <input type="hidden" name="month" value="${V.esc(board.month)}">
+  <h2>Pay this month</h2>
+  <p class="muted">Adds the prize to each winner's balance and tells them. Once done it
+     cannot be repeated for this month, so check the names first &mdash; a prize paid to
+     somebody who was cheating is hard to take back.</p>
+  <ul class="tight-list">
+    ${winners.map(w => `<li><b>${V.esc(w.name)}</b> &mdash; ${V.money(w.prize)}
+      <span class="dim">(earned ${V.money(w.earned)})</span></li>`).join('')}
+  </ul>
+  <label class="check">
+    <input type="checkbox" name="sure" value="1" required>
+    <span>I have looked at these accounts and they are genuine.</span>
+  </label>
+  <button class="btn btn-lg" type="submit">Pay ${V.money(winners.reduce((t, w) => t + w.prize, 0))}</button>
+</form>` : `<div class="alert alert-warn">
+  <b>Nobody qualifies yet.</b> A worker needs ${V.money(board.minEarned)} of approved work
+  in the month to enter.</div>`}
+
+${paid.length ? `<div class="card">
+  <div class="card-head"><h2>Already paid</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Month</th><th>Place</th><th>Worker</th><th class="right">Prize</th>
+      <th class="right">They earned</th><th>When</th></tr></thead>
+    <tbody>${paid.map(x => `<tr>
+      <td>${V.esc(x.month)}</td><td class="num">${x.place}</td>
+      <td><a class="link" href="/admin/users/${x.user_id}">${V.esc(x.name)}</a></td>
+      <td class="num right">${V.money(x.amount)}</td>
+      <td class="num right">${V.money(x.earned)}</td>
+      <td class="dim">${V.ago(x.created_at)}</td>
+    </tr>`).join('')}</tbody></table></div>
+</div>` : ''}`,
+  });
+});
+
+app.post('/admin/prizes/award', need('admin'), (req, res) => {
+  const month = /^\d{4}-\d{2}$/.test(String((req.body || {}).month || '')) ? req.body.month : null;
+  if (!month) return back(res, '/admin/prizes', 'Which month?', 'fail');
+  if (!(req.body || {}).sure) {
+    return back(res, `/admin/prizes?m=${month}`, 'Tick the box once you have looked at the accounts.', 'fail');
+  }
+
+  const board = stats.leaderboard(month, 25);
+  const winners = board.rows.filter(r => r.prize > 0);
+  if (!winners.length) return back(res, `/admin/prizes?m=${month}`, 'Nobody qualifies for that month.', 'fail');
+
+  let paid = 0;
+  const already = [];
+  for (const w of winners) {
+    try {
+      /* The row goes in first. Its unique index on (month, place) is what
+         actually stops a month being paid twice, so it has to be claimed
+         before any money moves - the other way round, a double press pays
+         twice and only then discovers it should not have. */
+      db.prepare(`INSERT INTO prizes (month, place, user_id, amount, earned, awarded_by)
+                  VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(month, w.place, w.id, w.prize, w.earned, req.user.id);
+    } catch (err) {
+      if (/UNIQUE/i.test(err.message)) { already.push(w.name); continue; }
+      throw err;
+    }
+
+    money.adjustBalance({
+      userId: w.id, amount: w.prize, adminId: req.user.id,
+      reason: `Monthly prize for ${month}, ${['first', 'second', 'third'][w.place - 1]} place`,
+    });
+
+    db.prepare("INSERT INTO notices (user_id, kind, title, body) VALUES (?, 'prize', ?, ?)")
+      .run(w.id, `You won ${money.fmt(w.prize)} in the ${month} monthly prize`,
+        `You came ${w.place === 1 ? 'first' : w.place === 2 ? 'second' : 'third'} for ${month}, `
+        + `with ${money.fmt(w.earned)} of approved work. The prize is in your balance now.`);
+
+    mail.queue({
+      userId: w.id, kind: 'prize',
+      subject: `You won ${money.fmt(w.prize)} in the monthly prize`,
+      heading: `${w.place === 1 ? 'First' : w.place === 2 ? 'Second' : 'Third'} place for ${month}`,
+      rows: [['Prize', money.fmt(w.prize)], ['You earned', money.fmt(w.earned)], ['Month', month]],
+      lines: ['It is in your balance now. The board resets at the start of each month.'],
+      button: { label: 'See the board', href: mail.siteUrl() + '/leaderboard' },
+    });
+    paid++;
+  }
+
+  audit(req.user.id, 'prizes_awarded', `month:${month}`, { paid, already }, req.ip);
+  back(res, `/admin/prizes?m=${month}`,
+    already.length
+      ? `Paid ${paid}. ${already.length} had already been paid for that month.`
+      : `Paid ${paid} winner${paid === 1 ? '' : 's'}.`,
+    'ok');
+});
 
 app.get('/support', need(), (req, res) => {
   const tickets = db.prepare(
