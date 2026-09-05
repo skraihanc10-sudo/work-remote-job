@@ -4120,6 +4120,57 @@ ${!pick ? '' : (() => {
   });
 });
 
+/* Turn an SMTP failure into something a person can act on.
+
+   The raw text is kept, because it is what a search engine or a provider's
+   support will recognise. But "535-5.7.8 Username and Password not accepted"
+   tells somebody nothing about what to do, and by far the most common cause
+   is the one thing the page already warned about: a normal Gmail password
+   pasted where an App Password belongs.
+*/
+function mailAdvice(message, provider) {
+  const m = String(message || '');
+
+  if (/535|5\.7\.8|Username and Password not accepted|Authentication failed|AUTH/i.test(m)) {
+    if (provider === 'gmail') {
+      return 'Gmail refused the sign-in. Almost always one of two things: this is your '
+        + 'ordinary Google password rather than a 16-letter App Password, or 2-Step '
+        + 'Verification is not switched on yet - Google will not issue an App Password '
+        + 'without it. / জিমেইল লগইন নেয়নি। সাধারণ পাসওয়ার্ড নয়, ১৬ অক্ষরের App Password দিন, '
+        + 'আর আগে 2-Step Verification চালু থাকতে হবে।';
+    }
+    if (provider === 'brevo') {
+      return 'Brevo refused the sign-in. Use the SMTP key from SMTP & API, not your '
+        + 'account password, and the login shown on that same page.';
+    }
+    return 'The mail server refused the username or password. Check both, and whether '
+      + 'this provider needs an app-specific password rather than your normal one.';
+  }
+
+  if (/534|Application-specific password required/i.test(m)) {
+    return 'Google is asking for an App Password specifically. Make one at '
+      + 'myaccount.google.com/apppasswords and paste that instead.';
+  }
+  if (/ENOTFOUND|getaddrinfo/i.test(m)) {
+    return 'That host name does not resolve. Check the spelling of the SMTP host.';
+  }
+  if (/ECONNREFUSED/i.test(m)) {
+    return 'Nothing is listening on that port. Try 587, or 465 if your provider asks for it.';
+  }
+  if (/ETIMEDOUT|Could not reach|stopped responding/i.test(m)) {
+    return 'The server did not answer. The port may be blocked where this site is hosted - '
+      + 'try 465 if you used 587, or the other way round.';
+  }
+  if (/STARTTLS/i.test(m)) {
+    return 'That port offers no encryption, so sending was refused. Use 587 or 465.';
+  }
+  if (/self-signed|certificate/i.test(m)) {
+    return 'The server presented a certificate that could not be verified. Check the host name '
+      + 'is the one the provider gave you.';
+  }
+  return '';
+}
+
 app.post('/admin/mail/setup', need('admin'), async (req, res) => {
   const b = req.body || {};
   const v = MAIL_PROVIDERS[b.provider];
@@ -4146,8 +4197,9 @@ app.post('/admin/mail/setup', need('admin'), async (req, res) => {
   try {
     await smtp.check(trial);
   } catch (err) {
+    const advice = mailAdvice(err.message, b.provider);
     return back(res, `/admin/mail/setup?p=${b.provider}`,
-      `Could not sign in: ${err.message}`, 'fail');
+      advice ? `${advice}  (${err.message})` : `Could not sign in: ${err.message}`, 'fail');
   }
 
   // Then prove a message actually leaves.
@@ -4163,8 +4215,9 @@ app.post('/admin/mail/setup', need('admin'), async (req, res) => {
       subject: 'Remote Work BD - email is working', text, html,
     });
   } catch (err) {
+    const advice = mailAdvice(err.message, b.provider);
     return back(res, `/admin/mail/setup?p=${b.provider}`,
-      `Signed in, but the message was refused: ${err.message}`, 'fail');
+      `Signed in, but the message was refused. ${advice || ''} (${err.message})`.trim(), 'fail');
   }
 
   setSetting('smtp_host', host);
@@ -4208,7 +4261,9 @@ app.post('/admin/mail/test', need('admin'), async (req, res) => {
     audit(req.user.id, 'mail_test', null, { to, host: cfg.host }, req.ip);
     back(res, '/admin/settings', `Sent to ${to}. If it does not arrive, check the spam folder.`, 'ok');
   } catch (err) {
-    back(res, '/admin/settings', `It did not send: ${err.message}`, 'fail');
+    const advice = mailAdvice(err.message, /gmail/i.test(cfg.host) ? 'gmail' : '');
+    back(res, '/admin/settings',
+      advice ? `${advice}  (${err.message})` : `It did not send: ${err.message}`, 'fail');
   }
 });
 
