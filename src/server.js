@@ -4424,18 +4424,23 @@ ${cryptomus.configured() && eps.configured() ? '' : `
   ${cryptomus.configured() ? '' : `
   <div class="setup-block">
     <h3>Cryptomus <span class="pill s-submitted">off</span></h3>
-    <p class="muted">Crypto deposits. Sign up at cryptomus.com, create a merchant,
-       then open <b>Settings &rarr; API</b> to find both values.</p>
+    <p class="muted">Crypto deposits. Sign up at cryptomus.com and pass their KYC,
+       then create a merchant &mdash; the keys only exist once a merchant does.
+       Both values are on that merchant's own API or integration page.</p>
     <table class="mini"><tbody>
       <tr><td class="mono">CRYPTOMUS_MERCHANT_ID</td><td class="dim">the merchant UUID</td></tr>
       <tr><td class="mono">CRYPTOMUS_PAYMENT_KEY</td><td class="dim">the payment API key, not the payout one</td></tr>
     </tbody></table>
-    <p class="muted">Then paste this into Cryptomus as the webhook or callback URL:</p>
+    <p class="muted">Nothing else to configure there. The callback address is sent
+       with every payment we create, so there is no webhook field to fill in:</p>
     <p class="mono copyline">${V.esc(site || 'https://your-domain')}/hooks/cryptomus</p>
+    <p class="fine">Shown only so you can recognise it in their logs, and so you can
+       see at a glance whether it is pointing somewhere real.</p>
     ${localhost ? `<div class="alert alert-warn">
-      <b>PUBLIC_URL is not a public address.</b> Cryptomus calls that URL from the
-      internet, so a deposit will never be credited while it points at localhost.
-      Set PUBLIC_URL to your real domain first.</div>` : ''}
+      <b>PUBLIC_URL is not a public address.</b> That address is sent to Cryptomus
+      with every payment, and they call it from the internet - so a deposit will
+      never be credited while it points at localhost. Set PUBLIC_URL to your real
+      domain first.</div>` : ''}
     <p class="fine">Deposits are priced in USD and credited at the
       <a class="link" href="/admin/settings">rate you set by hand</a>
       &mdash; currently ${V.money(numSetting('usd_rate'))} to the dollar. Check that before
