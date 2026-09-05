@@ -123,10 +123,10 @@ function navItems(user) {
     return [
       { href: '/merchant', label: 'Dashboard', key: 'dash', tab: true, icon: 'grid' },
       { href: '/merchant/jobs', label: 'My jobs', key: 'myjobs', tab: true, icon: 'list' },
-      { href: '/merchant/review', label: 'Review work', key: 'review', tab: true, icon: 'check' },
+      { href: '/merchant/review', label: 'Review work', short: 'Review', key: 'review', tab: true, icon: 'check' },
       { href: '/wallet', label: 'Wallet', key: 'wallet', tab: true, icon: 'cash' },
       { href: '/merchant/jobs/new', label: 'Post a job', key: 'newjob', cta: true, tab: true, icon: 'plus' },
-      { href: '/referrals', label: 'Refer a friend', key: 'referrals' },
+      { href: '/referrals', label: 'Refer a friend', short: 'Refer', key: 'referrals' },
       { href: '/support', label: 'Support', key: 'support' },
       { href: '/account', label: 'Account', key: 'account' },
     ];
@@ -161,16 +161,36 @@ function navIcon(name) {
     stroke-linecap="round" stroke-linejoin="round">${NAV_ICONS[name] || NAV_ICONS.grid}</svg>`;
 }
 
+/* The desktop header, in two groups.
+
+   They used to be one wrapping row, which meant that on a laptop the page
+   links filled the line and the buttons fell onto a second one - the name at
+   the far right, "Post a job" and "Sign out" underneath, everything at a
+   different height. The links now sit in a group that can shrink and, if it
+   really has to, scroll; the name and the buttons sit in a group that never
+   wraps and stays pinned to the right.
+*/
 function deskNav(user, active) {
   const items = navItems(user);
   const main = items.filter(i => !i.cta);
   const cta = items.filter(i => i.cta);
-  return main.map(i =>
-      `<a href="${i.href}"${i.key === active ? ' class="on"' : ''}>${esc(i.label)}</a>`).join(String.fromCharCode(10))
-    + '<span class="nav-gap"></span>'
-    + (user ? `<a href="/account"${active === 'account' ? ' class="on"' : ''} class="who-link">${esc(user.name)}</a>` : '')
+
+  /* Account is dropped from the links here: the person's own name to the right
+     is already a link to it, and two ways to the same page is two things
+     competing for a row that is short of space. The drawer still lists it,
+     because on a phone the name is not shown. */
+  const links = main
+    .filter(i => !(user && i.key === 'account'))
+    // `short` where a label has one: the header bar is capped at the page
+    // width, so two long labels were enough to push the last link out of view.
+    .map(i => `<a href="${i.href}"${i.key === active ? ' class="on"' : ''}>${esc(i.short || i.label)}</a>`)
+    .join('');
+
+  const actions = (user ? `<a href="/account"${active === 'account' ? ' class="on"' : ''} class="who-link">${esc(user.name)}</a>` : '')
     + cta.map(i => `<a href="${i.href}" class="btn btn-sm">${esc(i.label)}</a>`).join('')
     + (user ? '<a href="/logout" class="btn btn-ghost btn-sm">Sign out</a>' : '');
+
+  return `<div class="nav-links">${links}</div><div class="nav-actions">${actions}</div>`;
 }
 
 function drawerItems(user) {

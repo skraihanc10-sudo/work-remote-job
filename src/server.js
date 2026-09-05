@@ -2464,39 +2464,81 @@ app.get('/wallet', need(), (req, res) => {
   const rate = numSetting('usd_rate');
   const minDep = numSetting('min_deposit');
 
+  /* Adding money.
+
+     One flow whichever way they pay: choose the method, choose an amount in
+     dollars, go. The amount is in dollars for both because the crypto side is
+     priced that way, and quoting one minimum in dollars and another in taka on
+     the same page is how people end up entering the wrong number.
+
+     What will actually be charged and credited is shown before they commit.
+     Nobody should discover the exchange rate on the payment provider's page.
+  */
+  const minUsd = numSetting('min_deposit_usd');
+  const methods = [
+    cryptomus.configured() ? {
+      id: 'crypto', action: '/wallet/deposit/crypto',
+      name: 'USDT and other crypto',
+      note: 'USDT, BTC, ETH and more. Usually confirmed within minutes.',
+      badge: 'no bank needed',
+    } : null,
+    eps.configured() ? {
+      id: 'eps', action: '/wallet/deposit/eps',
+      name: 'bKash, Nagad, Rocket or card',
+      note: `Paid in ${V.esc(getSetting('currency'))} at ${V.money(rate)} to the dollar.`,
+      badge: 'instant',
+    } : null,
+  ].filter(Boolean);
+
+  const quick = [1, 5, 10, 25, 50, 100].filter(x => x * 100 >= minUsd);
+
   const addFunds = u.role !== 'merchant' ? '' : `
     <div class="card pad">
       <h2>Add funds</h2>
-      <p class="muted">Smallest deposit is ${V.money(minDep)}. Money lands in your balance
-         only after the payment provider confirms it &mdash; never on our say-so.</p>
+      <p class="muted">Smallest deposit is $${(minUsd / 100).toFixed(2)}. Money lands in your
+         balance only once the payment provider confirms it &mdash; never on our say-so.</p>
 
-      ${eps.configured() ? `
-      <div class="pay-option">
-        <div class="pay-head"><b>bKash, Nagad, Rocket, card</b><span class="pill s-active">instant</span></div>
-        <form method="post" action="/wallet/deposit/eps" class="pay-form">
-          ${csrfField(req)}
-          <input type="text" name="amount" placeholder="Amount in ${V.esc(getSetting('currency'))}" required inputmode="decimal">
-          <button class="btn" type="submit">Pay with EPS</button>
-        </form>
-        <span class="hint">Whole amounts only, no paisa.</span>
-      </div>` : ''}
+      ${methods.length ? `
+      <form method="post" action="${methods[0].action}" id="deposit-form" class="deposit">
+        ${csrfField(req)}
 
-      ${cryptomus.configured() ? `
-      <div class="pay-option">
-        <div class="pay-head"><b>Crypto</b><span class="pill s-active">USDT, BTC and others</span></div>
-        <form method="post" action="/wallet/deposit/crypto" class="pay-form">
-          ${csrfField(req)}
-          <input type="number" name="usd" step="0.01" min="1" placeholder="Amount in USD" required
-                 id="usd-input" data-rate="${rate}">
-          <button class="btn" type="submit">Pay with crypto</button>
-        </form>
-        <span class="hint" id="usd-preview">Rate: $1 = ${V.money(rate)}. You are credited in
-          ${V.esc(getSetting('currency'))} at that rate.</span>
-      </div>` : ''}
+        <span class="lbl">How do you want to pay?</span>
+        <div class="pay-pick">
+          ${methods.map((m, i) => `
+            <label class="pay ${i === 0 ? 'on' : ''}">
+              <input type="radio" name="method" value="${m.id}" data-action="${m.action}"
+                     ${i === 0 ? 'checked' : ''}>
+              <span class="pay-body">
+                <b>${V.esc(m.name)} <i class="pill s-active">${V.esc(m.badge)}</i></b>
+                <span>${m.note}</span>
+              </span>
+            </label>`).join('')}
+        </div>
 
-      ${!eps.configured() && !cryptomus.configured() ? `
-      <div class="alert alert-warn">No payment provider is switched on yet. Record a transfer below
-        and an admin will confirm it by hand.</div>` : ''}
+        <span class="lbl">How much?</span>
+        <div class="amt-quick">
+          ${quick.map(x => `<button type="button" class="amt" data-usd="${x}">$${x}</button>`).join('')}
+        </div>
+
+        <div class="amt-row">
+          <span class="amt-sign">$</span>
+          <input type="number" name="usd" id="usd-input" step="0.01"
+                 min="${(minUsd / 100).toFixed(2)}" required inputmode="decimal"
+                 placeholder="${(minUsd / 100).toFixed(2)}" data-rate="${rate}"
+                 data-currency="${V.esc(getSetting('currency_symbol'))}">
+          <span class="amt-usd">USD</span>
+        </div>
+
+        <p class="amt-out" id="amt-out" aria-live="polite">
+          Enter an amount and you will see exactly what lands in your balance.</p>
+
+        <button class="btn btn-lg" type="submit">Continue to payment</button>
+        <p class="fine">You will be taken to the provider to pay. Nothing is added here until
+           they confirm it, so closing the page by accident costs you nothing.</p>
+      </form>`
+      : `<div class="alert alert-warn">
+          <b>No payment provider is switched on yet.</b>
+          Record a transfer below and an admin will confirm it by hand.</div>`}
 
       <details class="manual">
         <summary>Paid another way? Record it here</summary>
@@ -2505,9 +2547,10 @@ app.get('/wallet', need(), (req, res) => {
         <form method="post" action="/wallet/deposit">
           ${csrfField(req)}
           <div class="row-2">
-            ${V.field({ label: 'Amount', name: 'amount', required: true, placeholder: '500.00' })}
+            ${V.field({ label: `Amount in ${V.esc(getSetting('currency'))}`, name: 'amount', required: true, placeholder: '500.00' })}
             ${V.field({ label: 'Method', name: 'method', type: 'select', options: [
               { value: 'bkash', label: 'bKash' }, { value: 'nagad', label: 'Nagad' },
+              { value: 'rocket', label: 'Rocket' },
               { value: 'bank', label: 'Bank transfer' }, { value: 'other', label: 'Other' }] })}
           </div>
           ${V.field({ label: 'Transaction reference', name: 'reference', required: true,
@@ -3544,7 +3587,10 @@ const EDITABLE = [
   { key: 'commission_bps', label: 'Platform fee', bps: true,
     hint: 'Taken from each approved task. 1000 = 10%.' },
   { key: 'min_withdrawal', label: 'Smallest withdrawal', money: true },
-  { key: 'min_deposit', label: 'Smallest deposit', money: true },
+  { key: 'min_deposit', label: 'Smallest deposit', money: true,
+    hint: 'A floor in local currency. The one people actually see is the dollar figure below.' },
+  { key: 'min_deposit_usd', label: 'Smallest deposit in USD', money: true,
+    hint: 'In dollars. Deposits are chosen in dollars whichever way somebody pays. 1.00 = one dollar.' },
   { key: 'max_tasks_per_day', label: 'Tasks per worker per day' },
   { key: 'max_tasks_per_merchant_per_day', label: 'Tasks from one buyer per day' },
   { key: 'min_seconds_floor', label: 'Minimum seconds on any task' },
@@ -4172,17 +4218,29 @@ function recordEvent(provider, depositId, ref, verified, status, payload, ip) {
 app.post('/wallet/deposit/eps', need('merchant'), active, async (req, res) => {
   if (!eps.configured()) return fail(res, 'Card and mobile banking payments are not switched on yet.');
 
-  const amount = money.parseAmount(req.body.amount);
-  const min = numSetting('min_deposit');
-  if (!amount || amount < min) return fail(res, `The smallest deposit is ${money.fmt(min)}`);
+  /* Chosen in dollars, like the crypto side, and converted here.
 
-  // EPS works in whole taka; refuse anything that would round.
-  if (amount % 100 !== 0) return fail(res, 'Enter a whole amount, without paisa.');
+     EPS charges in whole taka, so the converted figure is rounded up to the
+     next whole unit and that same rounded figure is what gets credited. The
+     alternative - charging one number and crediting another - puts a few
+     paisa into the books from nowhere on every single deposit. */
+  const usd = Number(String(req.body.usd || '').trim());
+  const minUsd = numSetting('min_deposit_usd');
+  if (!Number.isFinite(usd) || usd <= 0) return fail(res, 'Enter an amount in USD.');
+  if (Math.round(usd * 100) < minUsd) {
+    return fail(res, `The smallest deposit is $${(minUsd / 100).toFixed(2)}`);
+  }
+
+  const rate = numSetting('usd_rate');
+  const amount = Math.ceil((usd * rate) / 100) * 100;
 
   const mtid = eps.newTransactionId();
   const info = db.prepare(`INSERT INTO deposits (user_id, amount, method, provider, provider_ref, reference)
                            VALUES (?, ?, ?, 'eps', ?, ?)`)
-    .run(req.user.id, amount, 'eps', mtid, mtid);
+    // The asked-for figure, not a rounded one: this is the line an admin reads
+    // when matching a payment, and $1.005 charged as 121 should not be filed
+    // as $1.00.
+    .run(req.user.id, amount, 'eps', mtid, `$${usd} @ ${rate / 100}`);
   const depositId = Number(info.lastInsertRowid);
 
   try {
@@ -4274,16 +4332,18 @@ app.post('/wallet/deposit/crypto', need('merchant'), active, async (req, res) =>
   if (!cryptomus.configured()) return fail(res, 'Crypto payments are not switched on yet.');
 
   const usd = Number(String(req.body.usd || '').trim());
-  if (!Number.isFinite(usd) || usd < 1) return fail(res, 'Enter an amount in USD, at least 1.');
+  const minUsd = numSetting('min_deposit_usd');
+  if (!Number.isFinite(usd) || usd <= 0) return fail(res, 'Enter an amount in USD.');
+  if (Math.round(usd * 100) < minUsd) {
+    return fail(res, `The smallest deposit is $${(minUsd / 100).toFixed(2)}`);
+  }
 
   const rate = numSetting('usd_rate');                 // local units per 1 USD
   const credit = Math.round(usd * rate);
-  const min = numSetting('min_deposit');
-  if (credit < min) return fail(res, `That is under the smallest deposit of ${money.fmt(min)}`);
 
   const info = db.prepare(`INSERT INTO deposits (user_id, amount, method, provider, reference)
                            VALUES (?, ?, 'crypto', 'cryptomus', ?)`)
-    .run(req.user.id, credit, `$${usd.toFixed(2)} @ ${rate / 100}`);
+    .run(req.user.id, credit, `$${usd} @ ${rate / 100}`);
   const depositId = Number(info.lastInsertRowid);
 
   try {

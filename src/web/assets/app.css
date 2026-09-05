@@ -118,17 +118,38 @@ main.wrap { padding-top: 26px; padding-bottom: 70px; }
 .brand-name { font-family: var(--head); font-weight: 500; font-size: 15.5px; white-space: nowrap; }
 .brand-name b { font-weight: 700; }
 
-.nav { display: flex; align-items: center; gap: 6px; flex: 1; flex-wrap: wrap; }
-.nav > a { color: var(--green); padding: 6px 11px; border-radius: 6px; font-weight: 500; font-size: 14.5px; }
-.nav > a:hover { background: var(--green-bg); text-decoration: none; }
-.nav > a.on { color: var(--green); }
-/* .nav > a is more specific than .btn, so without these the buttons in the
+/* Two groups on one line, never wrapping. The links may shrink and, at the
+   very narrowest desktop widths, scroll sideways within their own group -
+   which keeps the header one tidy row instead of spilling the buttons onto a
+   second line at a different height. */
+.nav { display: flex; align-items: center; gap: 18px; flex: 1; min-width: 0; flex-wrap: nowrap; }
+.nav-links {
+  display: flex; align-items: center; gap: 2px;
+  flex: 1 1 auto; min-width: 0; overflow-x: auto;
+  scrollbar-width: none;
+}
+.nav-links::-webkit-scrollbar { display: none; }
+.nav-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; margin-left: auto; }
+
+.nav a { color: var(--green); padding: 6px 10px; border-radius: 6px; font-weight: 500; font-size: 14.5px; white-space: nowrap; }
+.nav a:hover { background: var(--green-bg); text-decoration: none; }
+.nav a.on { color: var(--green); }
+/* .nav a is more specific than .btn, so without these the buttons in the
    header lose their own colours and a green button gets dark grey text. */
-.nav > a.btn { color: #fff; padding: 10px 22px; }
-.nav > a.btn:hover { background: var(--green-dk); }
-.nav > a.btn-ghost { color: var(--ink-2); }
-.nav > a.btn-ghost:hover { background: var(--sunk); }
-.nav-gap { flex: 1; }
+.nav a.btn { color: #fff; padding: 9px 18px; }
+.nav a.btn:hover { background: var(--green-dk); }
+.nav a.btn-ghost { color: var(--ink-2); }
+.nav a.btn-ghost:hover { background: var(--sunk); }
+.nav a.who-link { color: var(--muted); font-size: 13.5px; }
+.nav a.who-link:hover { background: var(--sunk); color: var(--ink); }
+
+/* Below this the links are tight enough to need less room around them, but
+   still comfortably tappable. */
+@media (max-width: 1180px) {
+  .nav { gap: 10px; }
+  .nav a { padding: 6px 7px; font-size: 13.8px; }
+  .nav a.btn { padding: 8px 14px; font-size: 13.5px; }
+}
 .who { color: var(--muted); font-size: 13.5px; white-space: nowrap; }
 
 /* ----------------------------------------------------------------- buttons */
@@ -299,7 +320,6 @@ tr.flagged { background: var(--amber-bg); }
   .sticky { position: static; }
   .top-inner { min-height: 56px; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
   .nav { order: 3; width: 100%; }
-  .nav-gap { display: none; }
   .balance-chip { display: none; }
 }
 @media (max-width: 560px) {
@@ -1152,3 +1172,67 @@ table.mini td:first-child { width: 46%; }
   background: var(--card); border: 1px solid var(--line); border-radius: 7px;
   padding: 10px 13px; font-size: 13px; user-select: all; word-break: break-all;
 }
+
+/* ================================================================= deposit */
+.deposit .lbl {
+  display: block; font-family: var(--head); font-size: 14px; font-weight: 600;
+  margin: 20px 0 9px;
+}
+.deposit .lbl:first-of-type { margin-top: 6px; }
+
+.pay-pick { display: grid; gap: 9px; }
+.pay {
+  display: flex; align-items: flex-start; gap: 11px; cursor: pointer;
+  border: 1.5px solid var(--line); border-radius: 10px; padding: 13px 15px;
+  background: var(--card);
+}
+.pay:hover { border-color: var(--green); }
+.pay.on { border-color: var(--green); background: var(--green-bg); }
+.pay input { margin-top: 3px; flex: none; accent-color: var(--green); }
+.pay-body { display: block; }
+.pay-body b {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-family: var(--head); font-size: 14.5px;
+}
+.pay-body b i { font-style: normal; }
+.pay-body > span { display: block; color: var(--muted); font-size: 12.8px; margin-top: 3px; line-height: 1.5; }
+
+.amt-quick { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 11px; }
+.amt {
+  border: 1px solid var(--line); background: var(--card); color: var(--ink-2);
+  border-radius: 100px; padding: 7px 16px; font: inherit; font-size: 13.5px;
+  cursor: pointer; font-variant-numeric: tabular-nums;
+}
+.amt:hover { border-color: var(--green); color: var(--ink); }
+.amt.on { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+
+/* The amount field reads as one control: a fixed dollar sign, the number, and
+   the unit - so nobody has to wonder which currency they are typing. */
+.amt-row {
+  display: flex; align-items: center;
+  border: 1.5px solid var(--line); border-radius: 10px; background: var(--card);
+  overflow: hidden; max-width: 340px;
+}
+.amt-row:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px var(--green-bg); }
+.amt-sign, .amt-usd {
+  font-family: var(--head); font-weight: 600; color: var(--muted);
+  padding: 0 14px; flex: none;
+}
+.amt-sign { font-size: 19px; color: var(--ink); }
+.amt-usd { font-size: 13px; border-left: 1px solid var(--line); align-self: stretch; display: flex; align-items: center; }
+.amt-row input {
+  flex: 1; min-width: 0; border: 0; outline: none; background: transparent;
+  font: inherit; font-size: 21px; font-family: var(--head); font-weight: 600;
+  padding: 13px 0; color: var(--ink); font-variant-numeric: tabular-nums;
+}
+/* The spinner arrows make a money field look like a quantity picker. */
+.amt-row input::-webkit-outer-spin-button,
+.amt-row input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.amt-row input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+
+.amt-out {
+  color: var(--ink-2); font-size: 13.5px; margin: 12px 0 18px;
+  min-height: 20px;
+}
+.deposit .fine { margin-top: 12px; }
+.manual { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }

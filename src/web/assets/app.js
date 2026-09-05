@@ -96,24 +96,82 @@
   }, 6000);
 })();
 
-/* Crypto deposit: show what a USD amount becomes in the local currency before
-   anyone commits to it. The server recomputes this from the same setting - the
-   number here is a courtesy, not the source of truth. */
+/* The deposit form: pick a way to pay, pick an amount, see what lands.
+
+   The form posts to a different route depending on the method, so choosing one
+   swaps the action. Everything here is a courtesy - the server recomputes the
+   amount from the same setting and enforces the minimum itself, because a
+   figure worked out in the browser is a suggestion, not a fact.
+*/
 (function () {
   'use strict';
+  var form = document.getElementById('deposit-form');
   var input = document.getElementById('usd-input');
-  var out = document.getElementById('usd-preview');
-  if (!input || !out) return;
+  var out = document.getElementById('amt-out');
+  if (!form || !input || !out) return;
 
   var rate = Number(input.dataset.rate) || 0;
+  var symbol = input.dataset.currency || '';
   var base = out.textContent;
 
-  input.addEventListener('input', function () {
+  function money(units) {
+    return symbol + (units / 100).toLocaleString('en-US',
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function chosen() {
+    return form.querySelector('input[name="method"]:checked');
+  }
+
+  function show() {
     var usd = parseFloat(input.value);
     if (!isFinite(usd) || usd <= 0) { out.textContent = base; return; }
-    out.textContent = '$' + usd.toFixed(2) + ' credits about ' +
-      (usd * rate / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
-      ' to your balance.';
+
+    var pick = chosen();
+    var isEps = pick && pick.value === 'eps';
+    // EPS is charged in whole units, so the figure is rounded up the same way
+    // the server rounds it. Showing the unrounded number here and charging the
+    // rounded one is exactly the surprise this line exists to prevent.
+    var units = isEps ? Math.ceil((usd * rate) / 100) * 100 : Math.round(usd * rate);
+
+    out.textContent = isEps
+      ? 'You will pay ' + money(units) + ' and ' + money(units) + ' is added to your balance.'
+      : 'About ' + money(units) + ' is added to your balance, at ' + money(rate) + ' to the dollar.';
+  }
+
+  input.addEventListener('input', show);
+
+  // Choosing a method swaps where the form posts, and re-marks the card.
+  form.addEventListener('change', function (e) {
+    if (!e.target || e.target.name !== 'method') return;
+    var action = e.target.dataset.action;
+    if (action) form.setAttribute('action', action);
+    var labels = form.querySelectorAll('.pay');
+    for (var i = 0; i < labels.length; i++) {
+      labels[i].classList.toggle('on', labels[i].contains(e.target));
+    }
+    show();
+  });
+
+  // The quick amounts are a shortcut for the field, not a separate thing.
+  var quick = form.querySelectorAll('.amt');
+  for (var i = 0; i < quick.length; i++) {
+    quick[i].addEventListener('click', function () {
+      input.value = this.dataset.usd;
+      var all = form.querySelectorAll('.amt');
+      for (var j = 0; j < all.length; j++) all[j].classList.remove('on');
+      this.classList.add('on');
+      show();
+      input.focus();
+    });
+  }
+
+  // Typing a number by hand should clear any highlighted shortcut.
+  input.addEventListener('input', function () {
+    var all = form.querySelectorAll('.amt');
+    for (var j = 0; j < all.length; j++) {
+      all[j].classList.toggle('on', all[j].dataset.usd === input.value);
+    }
   });
 })();
 

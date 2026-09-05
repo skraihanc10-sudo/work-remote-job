@@ -537,6 +537,12 @@ const DEFAULTS = {
   // everybody, and this changes slowly enough to set by hand.
   usd_rate: '12000',
   min_deposit: '10000',
+  /* The smallest deposit, in US cents.
+
+     Deposits are chosen in dollars whichever way somebody pays, because the
+     crypto side is priced in dollars and quoting two different minimums for
+     the same page only confuses people. 100 = $1.00. */
+  min_deposit_usd: '100',
   // Referral rewards. Both are paid out of the platform's own commission, never
   // out of what the worker or the buyer receives - a scheme funded by shaving
   // somebody else's earnings is not a reward, it is a transfer.
