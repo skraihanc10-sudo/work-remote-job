@@ -14,18 +14,34 @@
   --sunk:      #F0F2F1;
   --ink:       #14181C;
   --ink-2:     #3D454D;
-  --muted:     #6C757E;
+  --muted:     #656E76;
   --line:      #E1E5E4;
   --line-soft: #EDF0EF;
 
-  --navy:      #1B2A57;      /* headings, footer, dark bands */
-  --navy-dk:   #141F41;
-  --navy-bg:   #EDF2FA;
-  --green:     #1F9D4D;      /* action: buttons, money, approved */
-  --green-dk:  #17803D;
+  /* Taken from the logo: a vivid azure and a dark neutral grey.
+
+     --brand is the identity and every action - buttons, links, whatever is
+     selected. --green is kept, but only for meaning: money arriving, work
+     approved, a state that is good. Brand and status are separate colours
+     doing separate jobs, so a green tick never reads as "this is the button"
+     and a blue button never reads as "this succeeded".
+
+     --brand is a shade deeper than the logo's own blue so that white text on
+     it clears the contrast floor; --brand-bright is the logo colour itself,
+     used where nothing sits on top of it. */
+  --brand:        #0B6FD8;
+  --brand-dk:     #0857AC;
+  --brand-bg:     #E9F2FD;
+  --brand-bright: #0A7CF0;
+
+  --navy:      #363B41;      /* the logo's dark grey: headings, footer, bands */
+  --navy-dk:   #24282D;
+  --navy-bg:   #EEF1F4;
+  --green:     #157A3A;      /* status only: money in, approved, paid */
+  --green-dk:  #10632E;
   --green-bg:  #E6F5EC;
-  --band:      #1668B0;      /* the mid-blue feature bands */
-  --band-2:    #2F86D4;
+  --band:      #0B6FD8;      /* the mid-blue feature bands */
+  --band-2:    #0A7CF0;
   --sky:       #EEF5FD;      /* the pale blue section ground */
   --violet:    #6C63FF;      /* service card icons */
   --amber:     #96650C;
@@ -55,14 +71,19 @@
     --muted:     #8B959D;
     --line:      #2A333A;
     --line-soft: #222A30;
-    --navy:      #8FB0E0;
-    --navy-dk:   #A9C4EA;
-    --navy-bg:   #18213A;
+    --brand:        #5CA8FF;
+    --brand-dk:     #86C0FF;
+    --brand-bg:     #0F2036;
+    --brand-bright: #4B9BFF;
+
+    --navy:      #A8B3BE;
+    --navy-dk:   #C2CCD5;
+    --navy-bg:   #1B2026;
     --green:     #4CC97A;
     --green-dk:  #6FD895;
     --green-bg:  #112417;
-    --band:      #14375E;
-    --band-2:    #1A4B7E;
+    --band:      #12395F;
+    --band-2:    #17497A;
     --sky:       #131A28;
     --violet:    #8F88FF;
     --amber:     #D8A44E;
@@ -116,13 +137,22 @@ main.wrap { padding-top: 26px; padding-bottom: 70px; }
 .top-inner { display: flex; align-items: center; gap: 22px; min-height: 62px; }
 .brand { display: flex; align-items: center; gap: 9px; color: inherit; }
 .brand:hover { text-decoration: none; }
+/* The mark draws its own shape now, so it needs no disc behind it. The colour
+   comes from currentColor, which is why the footer can simply set white. */
 .brand-mark {
-  width: 36px; height: 36px; border-radius: 50%; background: var(--navy); color: #fff;
-  font-family: var(--head); font-weight: 700; font-size: 12px;
+  width: 34px; height: 34px; color: var(--brand-bright);
   display: grid; place-items: center; flex: none;
 }
-.brand-name { font-family: var(--head); font-weight: 500; font-size: 15.5px; white-space: nowrap; }
-.brand-name b { font-weight: 700; }
+.brand-mark svg { display: block; }
+.brand-mark-img { display: block; width: 34px; height: 34px; object-fit: contain; flex: none; }
+
+/* Two-tone, the way the logo is: the name in the dark neutral, the rest in
+   the blue. */
+.brand-name {
+  font-family: var(--head); font-weight: 700; font-size: 16px;
+  white-space: nowrap; color: var(--ink); letter-spacing: -.01em;
+}
+.brand-name b { font-weight: 700; color: var(--brand); }
 
 /* Two groups on one line, never wrapping. The links may shrink and, at the
    very narrowest desktop widths, scroll sideways within their own group -
@@ -137,13 +167,13 @@ main.wrap { padding-top: 26px; padding-bottom: 70px; }
 .nav-links::-webkit-scrollbar { display: none; }
 .nav-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; margin-left: auto; }
 
-.nav a { color: var(--green); padding: 6px 10px; border-radius: 6px; font-weight: 500; font-size: 14.5px; white-space: nowrap; }
-.nav a:hover { background: var(--green-bg); text-decoration: none; }
-.nav a.on { color: var(--green); }
+.nav a { color: var(--brand); padding: 6px 10px; border-radius: 6px; font-weight: 500; font-size: 14.5px; white-space: nowrap; }
+.nav a:hover { background: var(--brand-bg); text-decoration: none; }
+.nav a.on { color: var(--brand); }
 /* .nav a is more specific than .btn, so without these the buttons in the
    header lose their own colours and a green button gets dark grey text. */
 .nav a.btn { color: #fff; padding: 9px 18px; }
-.nav a.btn:hover { background: var(--green-dk); }
+.nav a.btn:hover { background: var(--brand-dk); }
 .nav a.btn-ghost { color: var(--ink-2); }
 .nav a.btn-ghost:hover { background: var(--sunk); }
 .nav a.who-link { color: var(--muted); font-size: 13.5px; }
@@ -161,12 +191,12 @@ main.wrap { padding-top: 26px; padding-bottom: 70px; }
 /* ----------------------------------------------------------------- buttons */
 .btn {
   display: inline-flex; align-items: center; gap: 9px;
-  background: var(--green); color: #fff;
-  border: 1px solid var(--green); border-radius: 100px;
+  background: var(--brand); color: #fff;
+  border: 1px solid var(--brand); border-radius: 100px;
   padding: 10px 22px; font: inherit; font-weight: 600; font-size: 14.5px;
   cursor: pointer; text-align: center;
 }
-.btn:hover { background: var(--green-dk); border-color: var(--green-dk); text-decoration: none; color: #fff; }
+.btn:hover { background: var(--brand-dk); border-color: var(--brand-dk); text-decoration: none; color: #fff; }
 .btn-lg { padding: 14px 32px; font-size: 16px; }
 .btn-sm { padding: 7px 15px; font-size: 13.5px; }
 .btn-ghost { background: transparent; color: var(--ink-2); border-color: var(--line); }
@@ -388,7 +418,7 @@ tr.flagged { background: var(--amber-bg); }
   background: var(--sunk); border-radius: 12px; padding: 10px 14px;
   font-size: 14.5px; line-height: 1.6; white-space: normal;
 }
-.msg.staff .bubble { background: var(--green-bg); color: var(--ink); }
+.msg.staff .bubble { background: var(--brand-bg); color: var(--ink); }
 .chat-form { display: flex; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line-soft); align-items: flex-end; }
 .chat-form textarea { flex: 1; }
 
@@ -422,7 +452,7 @@ ul.tight li { margin-bottom: 2px; }
 /* ==================================================================== home */
 .eyebrow {
   display: inline-block; font-size: 11.5px; font-weight: 600;
-  letter-spacing: .16em; text-transform: uppercase; color: var(--green);
+  letter-spacing: .16em; text-transform: uppercase; color: var(--brand);
   margin-bottom: 12px;
 }
 .section-head.center { text-align: center; display: block; margin-bottom: 22px; }
@@ -474,7 +504,7 @@ ul.tight li { margin-bottom: 2px; }
 .quote blockquote {
   margin: 0; font-size: 15px; line-height: 1.65; color: var(--ink-2);
 }
-.quote blockquote::before { content: '\201C'; color: var(--green); font-size: 26px; line-height: 0; vertical-align: -6px; margin-right: 2px; }
+.quote blockquote::before { content: '\201C'; color: var(--brand); font-size: 26px; line-height: 0; vertical-align: -6px; margin-right: 2px; }
 .quote figcaption { display: flex; align-items: center; gap: 11px; margin-top: auto; }
 .avatar-initial {
   width: 34px; height: 34px; border-radius: 50%; flex: none;
@@ -599,8 +629,8 @@ ul.tight li { margin-bottom: 2px; }
 }
 .tick-list li::before {
   content: ''; position: absolute; left: 0; top: 7px;
-  width: 14px; height: 8px; border-left: 2.5px solid var(--green);
-  border-bottom: 2.5px solid var(--green); transform: rotate(-45deg);
+  width: 14px; height: 8px; border-left: 2.5px solid var(--brand);
+  border-bottom: 2.5px solid var(--brand); transform: rotate(-45deg);
 }
 
 /* ============================================================== feeds */
@@ -674,7 +704,9 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
 .act-row {
   display: grid; grid-template-columns: auto 1fr 2fr auto auto;
   gap: 14px; align-items: center;
-  background: var(--green-bg); border: 1px solid #D4EBDD;
+  /* These sit on the blue band, so a green card fought it. Plain white reads
+     as a row of records, which is what they are. */
+  background: var(--card); border: 1px solid var(--line);
   border-radius: 9px; padding: 12px 14px;
 }
 .act-who { font-weight: 600; font-size: 14px; color: var(--navy); }
@@ -686,7 +718,7 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
 .act-empty b { color: var(--ink); }
 .act-empty span { color: var(--muted); font-size: 14px; max-width: 60ch; margin: 0 auto; }
 .band-more { margin-top: 16px; }
-.band-more a { color: #BFE3FF; font-weight: 600; }
+.band-more a { color: #fff; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 
 /* services */
 .services { background: var(--sky); padding: 50px 0 56px; }
@@ -750,7 +782,9 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
 .foot-mark { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .foot-mark span { font-family: var(--head); font-size: 16px; color: #fff; font-weight: 500; }
 .foot-mark b { font-weight: 700; }
-.foot-mark .brand-mark { background: #fff; color: var(--navy); }
+/* White leaf on the dark footer, with the bars cut out in the footer's own
+   colour - otherwise white-on-white makes it a featureless blob. */
+.foot-mark .brand-mark { color: #fff; --mark-cut: var(--navy); }
 .foot-brand p { font-size: 14px; color: rgba(255,255,255,.62); max-width: 34ch; line-height: 1.7; }
 .foot-addr { font-size: 13.5px; }
 .foot h5 {
@@ -857,7 +891,7 @@ body.drawer-open { overflow: hidden; }
     padding: 9px 4px 8px; color: var(--muted); font-size: 10.5px;
   }
   .tabbar a:hover { text-decoration: none; }
-  .tabbar a.on { color: var(--green); }
+  .tabbar a.on { color: var(--brand); }
   .tab-ico { width: 22px; height: 22px; }
   .tab-ico svg { width: 22px; height: 22px; display: block; }
   .tab-label { line-height: 1.1; text-align: center; }
@@ -881,7 +915,7 @@ body.drawer-open { overflow: hidden; }
   padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px;
   background: var(--card); text-decoration: none; color: var(--ink);
 }
-.tpl:hover { border-color: var(--green); background: var(--green-bg); }
+.tpl:hover { border-color: var(--brand); background: var(--brand-bg); }
 .tpl b { font-family: var(--head); font-size: 14.5px; }
 .tpl span { color: var(--muted); font-size: 12.5px; line-height: 1.45; }
 
@@ -906,7 +940,7 @@ body.drawer-open { overflow: hidden; }
 }
 .stars label:hover, .stars label:hover ~ label,
 .stars input:checked ~ label { color: #E8A700; }
-.stars input:focus-visible + label { outline: 2px solid var(--green); border-radius: 4px; }
+.stars input:focus-visible + label { outline: 2px solid var(--brand); border-radius: 4px; }
 
 .level-card {
   display: flex; align-items: center; justify-content: space-between;
@@ -933,14 +967,14 @@ body.drawer-open { overflow: hidden; }
 .auth-split.one { grid-template-columns: minmax(0, 460px); justify-content: center; }
 
 .auth-tell .eyebrow {
-  display: inline-block; background: var(--green-bg); color: var(--green-dk);
+  display: inline-block; background: var(--brand-bg); color: var(--brand-dk);
   font-size: 12.5px; font-weight: 600; padding: 5px 13px; border-radius: 20px;
 }
 .auth-tell h1 {
   font-family: var(--head); font-size: 40px; line-height: 1.14;
   margin: 16px 0 14px; letter-spacing: -0.5px;
 }
-.auth-tell h1 b { color: var(--green); font-weight: 700; }
+.auth-tell h1 b { color: var(--brand); font-weight: 700; }
 .auth-tell > p { color: var(--muted); font-size: 15.5px; line-height: 1.7; margin: 0 0 22px; max-width: 46ch; }
 
 .auth-points { list-style: none; margin: 0 0 26px; padding: 0; display: grid; gap: 12px; }
@@ -950,7 +984,7 @@ body.drawer-open { overflow: hidden; }
 /* A tick drawn in CSS rather than an icon font or an inline SVG per row. */
 .auth-points li::before {
   content: ''; position: absolute; left: 0; top: 2px;
-  width: 18px; height: 18px; border-radius: 50%; background: var(--green);
+  width: 18px; height: 18px; border-radius: 50%; background: var(--brand);
 }
 .auth-points li::after {
   content: ''; position: absolute; left: 6px; top: 6px;
@@ -986,19 +1020,19 @@ body.drawer-open { overflow: hidden; }
   border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink);
 }
 .auth-fields input:focus, .auth-fields select:focus {
-  outline: none; border-color: var(--green); box-shadow: 0 0 0 3px var(--green-bg);
+  outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-bg);
 }
 .auth-fields .btn { margin-top: 20px; }
 
 .auth-row { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 13px; }
-.auth-row a { color: var(--green-dk); }
+.auth-row a { color: var(--brand-dk); }
 
 label.check { display: flex; gap: 9px; align-items: flex-start; margin: 18px 0 0; font-weight: 400; }
 label.check input { width: auto; margin-top: 2px; flex: none; }
 label.check span { font-size: 13px; color: var(--ink-2); line-height: 1.5; }
 
 .swap { text-align: center; margin: 16px 0 0; font-size: 13.5px; color: var(--muted); }
-.swap a { color: var(--green-dk); font-weight: 600; }
+.swap a { color: var(--brand-dk); font-weight: 600; }
 .auth-card .fine { text-align: center; margin-top: 14px; }
 
 .btn-block { width: 100%; display: block; }
@@ -1023,7 +1057,7 @@ label.check span { font-size: 13px; color: var(--ink-2); line-height: 1.5; }
   padding: 13px 16px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--card); text-decoration: none; color: var(--ink);
 }
-.chan:hover { border-color: var(--green); background: var(--green-bg); }
+.chan:hover { border-color: var(--brand); background: var(--brand-bg); }
 .chan b { font-family: var(--head); font-size: 14.5px; }
 .chan span { color: var(--muted); font-size: 12.5px; }
 
@@ -1073,7 +1107,7 @@ label.check span { font-size: 13px; color: var(--ink-2); line-height: 1.5; }
   background: var(--card); border: 1px solid var(--line); border-radius: 10px;
   padding: 14px 16px; text-decoration: none; color: var(--ink); display: block;
 }
-a.kpi:hover { border-color: var(--green); }
+a.kpi:hover { border-color: var(--brand); }
 .kpi b {
   display: block; font-family: var(--head); font-size: 22px; line-height: 1.15;
   font-variant-numeric: tabular-nums;
@@ -1096,7 +1130,7 @@ a.kpi:hover { border-color: var(--green); }
   background: var(--card); color: var(--ink-2); text-decoration: none; font-size: 13px;
 }
 .range a.on { background: var(--navy); border-color: var(--navy); color: #fff; font-weight: 600; }
-.range a:hover:not(.on) { border-color: var(--green); }
+.range a:hover:not(.on) { border-color: var(--brand); }
 .wide-range { margin-bottom: 16px; }
 .wide-range a i { font-style: normal; opacity: .65; margin-left: 4px; }
 .wide-range a.alt { border-style: dashed; margin-left: auto; }
@@ -1117,8 +1151,8 @@ td.warn-t, .warn-t { color: var(--amber); font-weight: 600; }
 }
 .role-pick a b { display: block; font-family: var(--head); font-size: 14px; }
 .role-pick a span { display: block; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
-.role-pick a.on { border-color: var(--green); background: var(--green-bg); color: var(--ink); }
-.role-pick a.on b { color: var(--green-dk); }
+.role-pick a.on { border-color: var(--brand); background: var(--brand-bg); color: var(--ink); }
+.role-pick a.on b { color: var(--brand-dk); }
 
 /* An admin has a dozen tools and the header fits six. The rest live here,
    shown only to an admin and only on an admin page. */
@@ -1132,7 +1166,7 @@ td.warn-t, .warn-t { color: var(--amber); font-weight: 600; }
   text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent;
 }
 .adminbar-in a:hover { color: var(--ink); }
-.adminbar-in a.on { color: var(--navy); font-weight: 600; border-bottom-color: var(--green); background: var(--card); }
+.adminbar-in a.on { color: var(--brand); font-weight: 600; border-bottom-color: var(--brand); background: var(--card); }
 @media (max-width: 900px) { .adminbar { display: none; } }
 td.nowrap { white-space: nowrap; }
 td.nowrap .link + .link { margin-left: 12px; }
@@ -1147,11 +1181,11 @@ td.nowrap .link + .link { margin-left: 12px; }
   padding: 14px 16px; border: 1.5px solid var(--line); border-radius: 10px;
   background: var(--card); text-decoration: none; color: var(--ink);
 }
-.prov:hover { border-color: var(--green); }
-.prov.on { border-color: var(--green); background: var(--green-bg); }
+.prov:hover { border-color: var(--brand); }
+.prov.on { border-color: var(--brand); background: var(--brand-bg); }
 .prov b { font-family: var(--head); font-size: 15px; }
 .prov span { color: var(--muted); font-size: 12.5px; line-height: 1.45; }
-.prov em { color: var(--green-dk); font-size: 11.5px; font-style: normal; margin-top: 2px; }
+.prov em { color: var(--brand-dk); font-size: 11.5px; font-style: normal; margin-top: 2px; }
 
 /* Numbered because these really are a sequence - each step needs the one
    before it to have happened. */
@@ -1192,9 +1226,9 @@ table.mini td:first-child { width: 46%; }
   border: 1.5px solid var(--line); border-radius: 10px; padding: 13px 15px;
   background: var(--card);
 }
-.pay:hover { border-color: var(--green); }
-.pay.on { border-color: var(--green); background: var(--green-bg); }
-.pay input { margin-top: 3px; flex: none; accent-color: var(--green); }
+.pay:hover { border-color: var(--brand); }
+.pay.on { border-color: var(--brand); background: var(--brand-bg); }
+.pay input { margin-top: 3px; flex: none; accent-color: var(--brand); }
 .pay-body { display: block; }
 .pay-body b {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
@@ -1209,8 +1243,8 @@ table.mini td:first-child { width: 46%; }
   border-radius: 100px; padding: 7px 16px; font: inherit; font-size: 13.5px;
   cursor: pointer; font-variant-numeric: tabular-nums;
 }
-.amt:hover { border-color: var(--green); color: var(--ink); }
-.amt.on { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+.amt:hover { border-color: var(--brand); color: var(--ink); }
+.amt.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
 
 /* The amount field reads as one control: a fixed dollar sign, the number, and
    the unit - so nobody has to wonder which currency they are typing. */
@@ -1219,7 +1253,7 @@ table.mini td:first-child { width: 46%; }
   border: 1.5px solid var(--line); border-radius: 10px; background: var(--card);
   overflow: hidden; max-width: 340px;
 }
-.amt-row:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px var(--green-bg); }
+.amt-row:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-bg); }
 .amt-sign, .amt-usd {
   font-family: var(--head); font-weight: 600; color: var(--muted);
   padding: 0 14px; flex: none;
@@ -1281,7 +1315,7 @@ table.mini td:first-child { width: 46%; }
   border: 1px dashed var(--line); border-radius: 8px; padding: 8px 13px;
   font-size: 13px; color: var(--ink-2); background: var(--card);
 }
-.file-pick:hover { border-color: var(--green); }
+.file-pick:hover { border-color: var(--brand); }
 .file-pick input { max-width: 190px; font-size: 12px; }
 
 /* Bangla beside English, where the Bangla is the part that must not be
@@ -1305,7 +1339,7 @@ h2 .bn, h1 .bn { color: var(--muted); font-weight: 500; font-size: .72em; margin
 .lvl-badge.l3 { background: var(--navy); color: #F5D77A; }
 
 .lvl-bar { height: 9px; border-radius: 100px; background: var(--sunk); overflow: hidden; margin-bottom: 9px; }
-.lvl-bar span { display: block; height: 100%; background: var(--green); border-radius: 100px; }
+.lvl-bar span { display: block; height: 100%; background: var(--brand); border-radius: 100px; }
 
 /* The ladder, so the next rung is visible rather than a surprise. */
 .lvl-steps {
@@ -1343,7 +1377,8 @@ h2 .bn, h1 .bn { color: var(--muted); font-weight: 500; font-size: .72em; margin
 .medal.m1 { background: #F1D06B; color: #5A4405; }
 .medal.m2 { background: #DCE1E6; color: #4A5560; }
 .medal.m3 { background: #E8C9A8; color: #6B4522; }
-.row-me { background: var(--green-bg); }
+/* Your own row on the board: an identity highlight, not a status. */
+.row-me { background: var(--brand-bg); }
 .me-standing { margin-bottom: 18px; }
 
 @media (max-width: 560px) {

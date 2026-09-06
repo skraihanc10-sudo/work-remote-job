@@ -33,22 +33,43 @@ function assetVersion(file) {
 const CSS_V = assetVersion('app.css');
 const JS_V = assetVersion('app.js');
 
+/* The logo mark, drawn rather than loaded.
+
+   A leaf - round on two opposite corners, square on the other two - with three
+   rising bars cut out of it. Drawn as SVG because the header shows it at 32px
+   and the social card at 512px, and one path is sharp at both; a PNG has to
+   pick a size and be wrong at the others.
+
+   The bars are cut out with --mark-cut rather than a fixed white, because on
+   the dark footer a white leaf with white bars is one white blob. Whatever
+   surface the mark sits on sets that colour.
+
+   A real logo.png still wins if one is present, so replacing this is a matter
+   of dropping the file in rather than editing code.
+*/
 function logoMark() {
   if (fs.existsSync(LOGO)) {
-    return '<img class="brand-mark-img" src="/assets/logo.png" alt="" width="32" height="32">';
+    return '<img class="brand-mark-img" src="/assets/logo.png" alt="" width="34" height="34">';
   }
   return `<span class="brand-mark" aria-hidden="true">
-    <svg viewBox="0 0 32 32" width="20" height="20" fill="none">
-      <circle cx="16" cy="16" r="12" stroke="currentColor" stroke-width="2"/>
-      <path d="M9 20l5-5 3 3 6-7" stroke="currentColor" stroke-width="2.6"
-            stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M19 11h5v5" stroke="currentColor" stroke-width="2.6"
-            stroke-linecap="round" stroke-linejoin="round"/>
+    <svg viewBox="0 0 64 64" width="34" height="34" role="img">
+      <path fill="currentColor" d="M4 60V32C4 16.536 16.536 4 32 4h24a4 4 0 0 1 4 4v24c0 15.464-12.536 28-28 28H4Z"/>
+      <g fill="var(--mark-cut, #fff)">
+        <rect x="14" y="44" width="9" height="12" rx="1"/>
+        <rect x="27" y="33" width="9" height="23" rx="1"/>
+        <rect x="40" y="24" width="9" height="32" rx="1"/>
+      </g>
+      <path fill="var(--mark-cut, #fff)" d="M18 42V32C18 21.507 26.507 13 37 13h13v9H37c-5.523 0-10 4.477-10 10v10h-9Z"/>
     </svg>
   </span>`;
 }
 
 const SITE = 'Remote Work BD';
+
+/* The share card has to be an absolute URL - Facebook and WhatsApp fetch it
+   from their own servers, where a path beginning with a slash means nothing. */
+const OG_URL = String(process.env.PUBLIC_URL || 'https://remoteworkbd.site')
+  .replace(/\/$/, '') + '/assets/og.png';
 
 // Newlines to <br>, after escaping. Written once here so no template has to
 // carry an escaped regex around.
@@ -266,7 +287,7 @@ function verifyTags() {
     .join('\n');
 }
 
-function layout({ title, user, active, body, flash, wide, notices, csrf, bare }) {
+function layout({ title, user, active, body, flash, wide, notices, csrf, bare, description }) {
   const bal = user ? money.balance(user.id) : 0;
   return `<!DOCTYPE html>
 <html lang="en">
@@ -278,6 +299,16 @@ function layout({ title, user, active, body, flash, wide, notices, csrf, bare })
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Figtree:wght@400;500;600&family=Hind+Siliguri:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="/assets/app.css?v=${CSS_V}">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/icon.png">
+<meta name="theme-color" content="#0A7CF0">
+<meta name="description" content="${esc(description || 'Microjob and freelancing site for Bangladesh. Every job is funded before it goes live, so the money for your work is set aside before you start.')}">
+<meta property="og:site_name" content="${SITE}">
+<meta property="og:type" content="website">
+<meta property="og:title" content="${esc(title)}">
+<meta property="og:description" content="${esc(description || 'Every job is funded before it goes live. Small gigs, real payouts.')}">
+<meta property="og:image" content="${OG_URL}">
+<meta name="twitter:card" content="summary_large_image">
 ${verifyTags()}
 </head>
 <body>
@@ -286,7 +317,7 @@ ${verifyTags()}
   <div class="wrap top-inner">
     <a href="/" class="brand">
       ${logoMark()}
-      <span class="brand-name">Remote Work <b>BD</b></span>
+      <span class="brand-name">Remote <b>Work BD</b></span>
     </a>
     ${bare ? '' : `<nav class="nav">${deskNav(user, active)}</nav>`}
     ${bare ? '' : `<div class="head-mobile">
@@ -327,7 +358,7 @@ ${body}
 <footer class="foot">
   <div class="wrap foot-grid">
     <div class="foot-brand">
-      <div class="foot-mark">${logoMark()}<span>Remote Work <b>BD</b></span></div>
+      <div class="foot-mark">${logoMark()}<span>Remote <b>Work BD</b></span></div>
       <p>Microjob and freelancing site to make money online. Every job is funded
          before it goes live.</p>
       ${getSetting('business_address', '') ? `<h5>Address</h5>

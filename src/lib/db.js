@@ -640,12 +640,14 @@ const DEFAULTS = {
   // Referral rewards. Both are paid out of the platform's own commission, never
   // out of what the worker or the buyer receives - a scheme funded by shaving
   // somebody else's earnings is not a reward, it is a transfer.
-  // Share of our fee on a referred worker's approved task:
-  referral_task_bps: '1500',
   /* Paid once, to the referrer, the first time somebody they invited has work
-     approved. A flat amount is what was promised on the referral page, and a
-     promise of "twenty taka" that pays a percentage of something invisible is
-     not a promise anybody can check. Still funded out of our commission. */
+     approved. A flat amount is what the referral page promises, and a promise
+     of "twenty taka" that actually pays a percentage of something invisible is
+     not a promise anybody can check. Funded out of our commission.
+
+     This replaced a share-of-the-fee setting. That one is gone rather than
+     left at zero: a setting an admin can still edit while nothing reads it is
+     worse than no setting, because the number moves and the payment does not. */
   referral_flat: '2000',         // 20
   // Share of a referred buyer's deposit:
   referral_deposit_bps: '100',

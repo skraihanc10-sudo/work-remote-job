@@ -225,6 +225,29 @@ const upload = multer({
   },
 });
 
+/* The tab icon, drawn rather than stored.
+
+   An SVG favicon is one file that is sharp at every size a browser asks for,
+   which a 32px PNG is not. Served from here rather than as a static file so
+   it always matches the mark the header is drawing.
+*/
+app.get('/favicon.svg', (req, res) => {
+  res.type('image/svg+xml');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <path fill="#0A7CF0" d="M4 60V32C4 16.536 16.536 4 32 4h24a4 4 0 0 1 4 4v24c0 15.464-12.536 28-28 28H4Z"/>
+  <g fill="#fff">
+    <rect x="14" y="44" width="9" height="12" rx="1"/>
+    <rect x="27" y="33" width="9" height="23" rx="1"/>
+    <rect x="40" y="24" width="9" height="32" rx="1"/>
+  </g>
+  <path fill="#fff" d="M18 42V32C18 21.507 26.507 13 37 13h13v9H37c-5.523 0-10 4.477-10 10v10h-9Z"/>
+</svg>`);
+});
+
+// Older browsers and bookmark bars still ask for this by name.
+app.get('/favicon.ico', (req, res) => res.redirect(301, '/favicon.svg'));
+
 app.get('/proof/:name', need(), (req, res) => {
   const name = path.basename(String(req.params.name));
   const file = path.join(DATA_DIR, 'proofs', name);
@@ -309,7 +332,6 @@ app.get('/', (req, res) => {
     WHERE j.status IN ('active','completed') ORDER BY j.id DESC LIMIT 6
   `).all();
 
-  const refTask = (numSetting('referral_task_bps') / 100).toFixed(0);
   const refDep = (numSetting('referral_deposit_bps') / 100).toFixed(0);
 
   send(req, res, {
@@ -454,10 +476,13 @@ app.get('/', (req, res) => {
 
 <section class="wrap">
   <div class="promo">
-    <h2>Earn ${refTask}% more by referral</h2>
-    <p>Share your link. You get <b>${refTask}% of our fee</b> on every task someone you
-       referred completes, and <b>${refDep}% of what they deposit</b> as a buyer.
-       It comes out of our commission &mdash; never out of their earnings.</p>
+    <h2>Bring a friend, earn ${V.money(numSetting('referral_flat'))}</h2>
+    <p>Share your link. When somebody you invited finishes their first task, you get
+       <b>${V.money(numSetting('referral_flat'))}</b> &mdash; and <b>${refDep}% of what they
+       deposit</b> if they come as a buyer.
+       It comes out of our commission, never out of their earnings.
+       <span class="bn">আপনার লিংকে কেউ জয়েন করে প্রথম কাজ শেষ করলেই
+       ${V.money(numSetting('referral_flat'))} টাকা পাবেন।</span></p>
     <a href="/login?want=worker" class="btn btn-lg btn-white">Start now</a>
   </div>
 </section>
@@ -5269,9 +5294,7 @@ app.get('/referrals', need(), (req, res) => {
   const list = referrals.people(u.id);
   const recent = referrals.recentEarnings(u.id);
 
-  const taskShare = (numSetting('referral_task_bps') / 100).toFixed(0);
   const depositShare = (numSetting('referral_deposit_bps') / 100).toFixed(0);
-  const fee = (numSetting('commission_bps') / 100).toFixed(0);
 
   send(req, res, {
     title: 'Refer a friend', active: 'referrals',
@@ -5301,14 +5324,15 @@ app.get('/referrals', need(), (req, res) => {
   <div class="card pad">
     <h2>What you earn</h2>
     <ul class="tick-list">
-      <li><b>${taskShare}% of our fee</b> on every task your referral completes.
-        We take ${fee}% of a task; you get ${taskShare}% of that.</li>
+      <li><b>${V.money(numSetting('referral_flat'))}</b> the first time somebody you
+        invited has a task approved. Once per person, on a day you can point at.</li>
       <li><b>${depositShare}% of every deposit</b> a referral you brought in adds to
         their balance as a buyer.</li>
     </ul>
     <p class="fine">Both come out of what the platform earns &mdash; never out of your
       friend's earnings or the price they pay. Nobody is worse off because you referred
-      them, which is the only version of this worth running.</p>
+      them, which is the only version of this worth running.
+      <span class="bn">এই টাকা আমাদের কমিশন থেকে যায় &mdash; আপনার বন্ধুর আয় থেকে এক টাকাও কাটা হয় না।</span></p>
   </div>
 
   <div class="card pad">
