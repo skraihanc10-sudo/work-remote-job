@@ -85,7 +85,7 @@ const SITE = 'Remote Work BD';
 
 /* The share card has to be an absolute URL - Facebook and WhatsApp fetch it
    from their own servers, where a path beginning with a slash means nothing. */
-const OG_URL = String(process.env.PUBLIC_URL || 'https://remoteworkbd.site')
+const OG_URL = String(process.env.PUBLIC_URL || 'https://remoteworkbd.com')
   .replace(/\/$/, '') + '/assets/og.png';
 
 // Newlines to <br>, after escaping. Written once here so no template has to
@@ -304,7 +304,7 @@ function verifyTags() {
     .join('\n');
 }
 
-function layout({ title, user, active, body, flash, wide, notices, csrf, bare, description }) {
+function layout({ title, user, active, body, flash, wide, notices, csrf, bare, description, canonical }) {
   const bal = user ? money.balance(user.id) : 0;
   return `<!DOCTYPE html>
 <html lang="en">
@@ -316,6 +316,7 @@ function layout({ title, user, active, body, flash, wide, notices, csrf, bare, d
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Figtree:wght@400;500;600&family=Hind+Siliguri:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="/assets/app.css?v=${CSS_V}">
+${canonical ? `<link rel="canonical" href="${esc(canonical)}">` : ''}
 <link rel="icon" href="/assets/mark.png" sizes="512x512" type="image/png">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/icon.png">
@@ -325,6 +326,7 @@ function layout({ title, user, active, body, flash, wide, notices, csrf, bare, d
 <meta property="og:type" content="website">
 <meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(description || 'Every job is funded before it goes live. Small gigs, real payouts.')}">
+<meta property="og:url" content="${esc(canonical || OG_URL.replace('/assets/og.png', ''))}">
 <meta property="og:image" content="${OG_URL}">
 <meta name="twitter:card" content="summary_large_image">
 ${verifyTags()}

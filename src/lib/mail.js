@@ -54,7 +54,7 @@ function enabled() {
 }
 
 function siteUrl() {
-  return String(process.env.PUBLIC_URL || 'https://remoteworkbd.site').replace(/\/$/, '');
+  return String(process.env.PUBLIC_URL || 'https://remoteworkbd.com').replace(/\/$/, '');
 }
 
 // --------------------------------------------------------------- unsubscribe
@@ -92,8 +92,10 @@ const esc = s => String(s == null ? '' : s)
 */
 function render({ heading, intro, rows, lines, button, foot, unsub }) {
   const site = siteUrl();
-  const navy = '#1B2A57';
-  const green = '#1F9D4D';
+  // The logo's own colours, written out rather than referenced: an email has
+  // no stylesheet and no custom properties, so every colour is inline.
+  const navy = '#3B3E42';
+  const green = '#0067BE';
 
   const rowsHtml = (rows || []).map(([k, v]) => `
     <tr>

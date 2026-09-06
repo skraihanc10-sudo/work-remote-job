@@ -153,6 +153,13 @@ function send(req, res, opts) {
     flash: flashOf(req),
     notices: req.user ? auth.unseenNotices(req.user.id) : [],
     csrf: csrf(req),
+    /* The canonical address of this page, without the query string.
+
+       Search engines otherwise treat /jobs, /jobs?page=1 and the same page
+       reached with a tracking parameter as three different pages competing
+       with each other. The path is what identifies a page here; nothing on
+       this site changes its content based on a query except pagination. */
+    canonical: baseUrl(req).replace(/\/$/, '') + req.path,
   }));
 }
 
@@ -231,6 +238,104 @@ const upload = multer({
    which a 32px PNG is not. Served from here rather than as a static file so
    it always matches the mark the header is drawing.
 */
+/* ====================================================================
+   Telling search engines what is here, and what is not.
+
+   Both are generated rather than kept as files, so they follow PUBLIC_URL.
+   Moving to a new domain then needs nothing beyond that one variable, and a
+   sitemap advertising the old host is worse than no sitemap at all.
+   ==================================================================== */
+
+// Only the pages a stranger can actually open. Anything behind a sign-in, or
+// carrying a token, is not listed here and is refused in robots.txt as well.
+const PUBLIC_PAGES = [
+  ['/', 1.0, 'daily'],
+  ['/jobs', 0.9, 'hourly'],
+  ['/how-it-works', 0.7, 'monthly'],
+  ['/about', 0.6, 'monthly'],
+  ['/faq', 0.6, 'monthly'],
+  ['/payments', 0.6, 'weekly'],
+  ['/activity', 0.5, 'hourly'],
+  ['/leaderboard', 0.5, 'daily'],
+  ['/security', 0.5, 'monthly'],
+  ['/terms', 0.4, 'yearly'],
+  ['/privacy-policy', 0.4, 'yearly'],
+  ['/refunds', 0.4, 'yearly'],
+  ['/contact', 0.4, 'yearly'],
+  ['/signup', 0.7, 'monthly'],
+  ['/login', 0.5, 'monthly'],
+];
+
+app.get('/robots.txt', (req, res) => {
+  const site = baseUrl(req).replace(/\/$/, '');
+  res.type('text/plain');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+
+  /* Everything private is refused by path.
+
+     Not because a crawler could read any of it - all of it needs a session -
+     but because a crawler asking costs the site work, and a token in a URL
+     that a crawler followed can end up in somebody's logs. The reset and
+     verify links are one-use, so a bot that fetched one would burn it.
+  */
+  res.send([
+    'User-agent: *',
+    'Allow: /',
+    '',
+    'Disallow: /admin',
+    'Disallow: /wallet',
+    'Disallow: /account',
+    'Disallow: /worker',
+    'Disallow: /merchant',
+    'Disallow: /task',
+    'Disallow: /support',
+    'Disallow: /referrals',
+    'Disallow: /proof/',
+    'Disallow: /payout-proof/',
+    'Disallow: /hooks/',
+    'Disallow: /dev-login',
+    'Disallow: /logout',
+    'Disallow: /verify',
+    'Disallow: /reset',
+    'Disallow: /forgot',
+    'Disallow: /unsubscribe',
+    'Disallow: /r/',
+    '',
+    `Sitemap: ${site}/sitemap.xml`,
+    '',
+  ].join('\n'));
+});
+
+app.get('/sitemap.xml', (req, res) => {
+  const site = baseUrl(req).replace(/\/$/, '');
+  const esc = u => u.replace(/&/g, '&amp;');
+
+  // Live jobs are worth listing: they are public, they change often, and they
+  // are the reason somebody would find this site by searching at all.
+  const jobs = db.prepare(
+    "SELECT id, created_at FROM jobs WHERE status = 'active' ORDER BY id DESC LIMIT 500"
+  ).all();
+
+  const day = d => String(d || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+
+  const urls = PUBLIC_PAGES.map(([path, priority, freq]) =>
+    `  <url><loc>${esc(site + path)}</loc>` +
+    `<changefreq>${freq}</changefreq>` +
+    `<priority>${priority.toFixed(1)}</priority></url>`
+  ).concat(jobs.map(j =>
+    `  <url><loc>${esc(`${site}/jobs/${j.id}`)}</loc>` +
+    `<lastmod>${day(j.created_at)}</lastmod>` +
+    `<changefreq>daily</changefreq><priority>0.6</priority></url>`
+  ));
+
+  res.type('application/xml');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.join('\n')}
+</urlset>`);
+});
+
 app.get('/favicon.svg', (req, res) => {
   res.type('image/svg+xml');
   res.setHeader('Cache-Control', 'public, max-age=86400');
