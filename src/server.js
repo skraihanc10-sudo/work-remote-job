@@ -82,7 +82,20 @@ app.use((req, res, next) => {
 app.get('/health', (req, res) => {
   try {
     db.prepare('SELECT 1').get();
-    res.json({ ok: true, gateways: { eps: eps.configured(), cryptomus: cryptomus.configured() } });
+    /* publicUrl and host are here on purpose.
+
+       When PUBLIC_URL names the wrong domain, every other page 301s to it and
+       the site looks dead from outside. /health is exempt from that redirect,
+       so it is the only place left to read the setting that is causing it -
+       and seeing the two side by side names the problem immediately. */
+    res.json({
+      ok: true,
+      publicUrl: process.env.PUBLIC_URL || null,
+      host: req.get('host') || null,
+      hostMatches: !CANONICAL_HOST || req.get('host') === CANONICAL_HOST,
+      dataDir: DATA_DIR,
+      gateways: { eps: eps.configured(), cryptomus: cryptomus.configured() },
+    });
   } catch (err) {
     res.status(503).json({ ok: false, error: err.message });
   }
@@ -6220,6 +6233,15 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`  http://localhost:${PORT}`);
   console.log('');
   console.log(`  data      ${DATA_DIR}`);
+  /* The database lives in DATA_DIR. On a host that rebuilds the container each
+     deploy, a DATA_DIR inside the app folder is erased every time - accounts,
+     balances and all - and nothing says so until somebody notices their money
+     is gone. It costs one line to warn at boot instead. */
+  if (process.env.NODE_ENV === 'production' && !process.env.DATA_DIR) {
+    console.log('');
+    console.log('  *** DATA_DIR is not set, so the database is inside the app folder.');
+    console.log('  *** Every deploy will wipe it. Mount a volume and point DATA_DIR at it.');
+  }
   console.log(`  sign-in   ${google.configured() ? 'Google + password' : 'password only (Google not configured)'}`);
   const mailCfg = mail.config();
   console.log(`  mail      ${mailCfg.enabled ? `on, via ${mailCfg.host}:${mailCfg.port} as ${mailCfg.from}` : 'off - nothing will be sent'}`);
