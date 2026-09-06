@@ -6168,7 +6168,17 @@ function shutdown(signal) {
   };
 
   server.close(done);
-  // Do not hang forever on a slow client holding a connection open.
+
+  /* Hang up the connections that are not doing anything.
+
+     server.close() waits for every open connection, and a browser keeps one
+     alive for a minute after the last request. With real traffic that is
+     enough to sit past the host's grace period, get killed instead of exiting,
+     and be recorded as a crash on every ordinary redeploy. Idle sockets are
+     closed at once; ones mid-request are left to finish. */
+  if (typeof server.closeIdleConnections === 'function') server.closeIdleConnections();
+
+  // And a hard stop, for a client that keeps a request open forever.
   setTimeout(() => {
     console.log('  some connections were still open, exiting anyway');
     process.exit(0);
@@ -6215,8 +6225,16 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`  mail      ${mailCfg.enabled ? `on, via ${mailCfg.host}:${mailCfg.port} as ${mailCfg.from}` : 'off - nothing will be sent'}`);
   console.log(`  admins    ${auth.adminEmails().join(', ') || 'none - set ADMIN_EMAILS'}`);
   console.log(`  payments  EPS ${on(eps.configured())}, Cryptomus ${on(cryptomus.configured())}`);
+  /* Say what is actually true.
+
+     The route itself refuses in production regardless, but the banner only
+     looked at ALLOW_DEV_LOGIN and so announced "ENABLED" on a live server.
+     A boot log that reports a back door which is not there is worse than
+     saying nothing: somebody reads it and either panics or, worse, trusts it. */
   if (process.env.ALLOW_DEV_LOGIN === '1') {
-    console.log('  dev login ENABLED - /dev-login?email=... (this machine only)');
+    console.log(process.env.NODE_ENV === 'production'
+      ? '  dev login ALLOW_DEV_LOGIN is set but ignored in production'
+      : '  dev login ENABLED - /dev-login?email=... (this machine only)');
   }
   console.log('');
 });
