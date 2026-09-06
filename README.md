@@ -133,7 +133,6 @@ PUBLIC_URL=https://your-domain
 CSRF_SECRET=(a long random string)
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
-GOOGLE_REDIRECT_URI=https://your-domain/auth/google/callback
 ADMIN_EMAILS=you@gmail.com
 NODE_ENV=production
 ```
@@ -233,8 +232,17 @@ daily caps, the timing check and the connection history.
 ```
 GOOGLE_CLIENT_ID=...apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=...
-GOOGLE_REDIRECT_URI=https://your-domain/auth/google/callback
 ADMIN_EMAILS=you@gmail.com
+```
+
+The callback address is not a variable: it is built from `PUBLIC_URL`, so
+moving to a new domain changes one setting rather than two and cannot leave a
+stale value pointing at the old host. **Admin → Settings** prints the exact
+address to paste into the Google console, which is worth copying rather than
+typing - Google compares the whole string, and a missing slash is enough to
+break sign-in.
+
+```
 ```
 
 **Admins are made by configuration.** Any email in `ADMIN_EMAILS` becomes an
@@ -569,7 +577,7 @@ are counting their earnings is worth more than any animation.
 | `CSRF_SECRET` | random per start | **set it in production**, or every restart invalidates open forms |
 | `GOOGLE_CLIENT_ID` | — | required for anyone to sign in |
 | `GOOGLE_CLIENT_SECRET` | — | required |
-| `GOOGLE_REDIRECT_URI` | localhost | must match Google exactly |
+| `GOOGLE_REDIRECT_URI` | built from `PUBLIC_URL` | only set it if the callback is not on your own domain |
 | `ADMIN_EMAILS` | — | comma-separated; these accounts become admins |
 | `ALLOW_DEV_LOGIN` | off | local development only, see above |
 | `PUBLIC_URL` | from the request | the address gateways call back to |

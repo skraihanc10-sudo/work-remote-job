@@ -4002,6 +4002,21 @@ app.get('/admin/settings', need('admin'), (req, res) => {
 </form>
 
 <div class="card pad">
+  <h2>Google sign-in</h2>
+  ${google.configured()
+    ? '<p class="muted">Configured. People can sign in with Google.</p>'
+    : `<p class="muted">Not switched on. Add <b class="mono">GOOGLE_CLIENT_ID</b> and
+       <b class="mono">GOOGLE_CLIENT_SECRET</b> to the environment &mdash; on Railway that is
+       <b>Variables</b>. Password sign-in works either way.</p>`}
+  <p class="muted">Whichever it is, this exact address has to be listed in the Google Cloud
+     console under <b>Authorised redirect URIs</b>. Google compares the whole string, so a
+     missing slash or an http where it wants https is enough to break sign-in:</p>
+  <p class="mono copyline">${V.esc(google.redirectUri())}</p>
+  <p class="fine">It follows your site address, so you do not have to set it separately.
+     The origin to authorise is ${V.esc(String(process.env.PUBLIC_URL || '').replace(/\/$/, '') || 'your site address')}.</p>
+</div>
+
+<div class="card pad">
   <h2>Test your email settings</h2>
   <p class="muted">Not sure what to put in the fields above?
      <a class="link" href="/admin/mail/setup">Use the guided setup</a> instead &mdash; it asks

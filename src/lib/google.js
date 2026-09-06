@@ -23,12 +23,29 @@ const crypto = require('crypto');
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
+/* Where Google sends people back to.
+
+   Derived from PUBLIC_URL unless it is set explicitly, so moving to a new
+   domain is one variable rather than two. It used to fall back to localhost,
+   which on a server is a trap: sign-in breaks with "redirect_uri_mismatch",
+   an error that says nothing about the setting that caused it, and the site
+   looks broken rather than misconfigured.
+
+   Whatever this comes out as must be registered in the Google Cloud console
+   character for character - Google compares the whole string, including the
+   scheme and any trailing slash.
+*/
+function redirectUri() {
+  if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI.trim();
+  const site = String(process.env.PUBLIC_URL || '').trim().replace(/\/$/, '');
+  return (site || 'http://localhost:4700') + '/auth/google/callback';
+}
+
 function config() {
   return {
     clientId: process.env.GOOGLE_CLIENT_ID || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-    // Must match a redirect URI registered in the Google Cloud console exactly.
-    redirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:4700/auth/google/callback',
+    redirectUri: redirectUri(),
   };
 }
 
@@ -106,4 +123,5 @@ async function exchange(code) {
   };
 }
 
-module.exports = { configured, config, newState, authUrl, exchange };
+module.exports = {
+  redirectUri, configured, config, newState, authUrl, exchange };
