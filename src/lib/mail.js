@@ -90,7 +90,7 @@ const esc = s => String(s == null ? '' : s)
    deliberately plain: a receipt that looks like an advert gets treated like
    one, both by the reader and by the spam filter.
 */
-function render({ heading, intro, rows, lines, button, foot, unsub }) {
+function render({ heading, intro, rows, lines, button, foot, unsub, code, codeLabel }) {
   const site = siteUrl();
   // The logo's own colours, written out rather than referenced: an email has
   // no stylesheet and no custom properties, so every colour is inline.
@@ -121,6 +121,13 @@ function render({ heading, intro, rows, lines, button, foot, unsub }) {
       ${linesHtml}
       ${rowsHtml ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
          style="margin:18px 0;border-top:1px solid #E1E5E4;border-bottom:1px solid #E1E5E4;">${rowsHtml}</table>` : ''}
+      ${code ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:22px 0;">
+        <tr><td align="center" style="background:#F4F7FA;border:1px solid #E1E5E4;border-radius:10px;padding:18px 12px;">
+          <div style="color:#6C757E;font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;">
+            ${esc(codeLabel || 'Your code')}</div>
+          <div style="color:#14181C;font-size:34px;font-weight:700;letter-spacing:7px;
+                      font-family:Consolas,Menlo,monospace;margin-top:8px;">${esc(code)}</div>
+        </td></tr></table>` : ''}
       ${button ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0 6px;">
         <tr><td style="background:${green};border-radius:8px;">
           <a href="${esc(button.href)}" style="display:inline-block;padding:12px 22px;color:#FFFFFF;
@@ -146,6 +153,9 @@ function render({ heading, intro, rows, lines, button, foot, unsub }) {
     heading, '',
     intro || '',
     ...(lines || []),
+    code ? `
+${codeLabel || 'Your code'}: ${code}
+` : '',
     '',
     ...(rows || []).map(([k, v]) => `${k}: ${v}`),
     button ? `\n${button.label}: ${button.href}` : '',
@@ -278,26 +288,37 @@ function welcome(user) {
   });
 }
 
-function verifyEmail(user, token) {
+/* Both ways in one message.
+
+   The button is one tap when the email is open on the same device. The code is
+   what you need when it arrives on a phone and you are signing up on a laptop,
+   and it is the shape most people here already recognise. They are the same
+   issuance, so using either spends both.
+*/
+function verifyEmail(user, { token, code }) {
   return queue({
     userId: user.id, kind: 'verify',
-    subject: 'Confirm your email address',
+    subject: `${code} is your Remote Work BD confirmation code`,
     heading: 'Confirm your email address',
     intro: `Hello ${user.name}, please confirm this is your address.`,
-    lines: ['Until you do, you can look around but you cannot take work or withdraw. It takes one click.'],
-    button: { label: 'Confirm my email', href: `${siteUrl()}/verify?t=${token}` },
-    foot: 'This link works once and expires in 24 hours. If you did not create this account, ignore this message and nothing will happen.',
+    lines: ['Until you do, you can look around but you cannot take work or withdraw.'],
+    code,
+    codeLabel: 'Your confirmation code',
+    button: { label: 'Or confirm with one tap', href: `${siteUrl()}/verify?t=${token}` },
+    foot: 'The code and the link both work once and expire in 24 hours. If you did not create this account, ignore this message and nothing will happen.',
   });
 }
 
-function resetPassword(user, token) {
+function resetPassword(user, { token, code }) {
   return queue({
     userId: user.id, kind: 'reset',
-    subject: 'Reset your password',
+    subject: `${code} is your Remote Work BD password reset code`,
     heading: 'Reset your password',
     intro: `Someone asked to reset the password for ${user.email}.`,
-    button: { label: 'Choose a new password', href: `${siteUrl()}/reset?t=${token}` },
-    foot: 'This link works once and expires in one hour. If it was not you, ignore this message - your password has not changed and nobody can use this link without your inbox.',
+    code,
+    codeLabel: 'Your reset code',
+    button: { label: 'Or reset with one tap', href: `${siteUrl()}/reset?t=${token}` },
+    foot: 'The code and the link both work once and expire in one hour. If it was not you, ignore this message - your password has not changed and neither can be used without your inbox.',
   });
 }
 

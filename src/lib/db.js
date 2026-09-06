@@ -585,6 +585,29 @@ const MIGRATIONS = [
       CREATE INDEX idx_wd_user ON withdrawals(user_id, id DESC);
     `,
   },
+  {
+    id: 10,
+    name: 'a one-time code beside every one-time link',
+    sql: `
+      /* The same issuance, usable two ways.
+
+         A link is one tap on the device that opened the email. A six-digit
+         code is what you need when the email arrives on a phone and you are
+         signing in on a laptop - and it is the shape most people here already
+         know from every other service. One row carries both, so they share an
+         expiry and being spent once means spent both ways.
+
+         Stored as a hash like the token, because a code sitting in the
+         database in plain text is a password anybody with a copy can use.
+      */
+      ALTER TABLE email_tokens ADD COLUMN code_hash TEXT;
+
+      /* Six digits is a million guesses, which is nothing without a limit.
+         Counted per row so a wrong code burns the attempt rather than the
+         person's whole account. */
+      ALTER TABLE email_tokens ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (

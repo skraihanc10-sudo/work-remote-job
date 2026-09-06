@@ -1526,6 +1526,27 @@ app.post('/login', (req, res) => {
 });
 
 // ------------------------------------------------------- confirming an email
+/* Confirm an address with the code from the same email, for anybody who read
+   it on a different device from the one they signed up on. */
+app.post('/verify-code', (req, res) => {
+  const b = req.body || {};
+  const email = auth.normalizeEmail(b.email || (req.user && req.user.email));
+  const who = 'verify:' + email;
+
+  if (auth.tooManyFailures(who, req.ip)) {
+    return back(res, '/account', 'Too many attempts. Wait a few minutes and try again.', 'fail');
+  }
+  const result = auth.useCode(email, b.code, 'verify');
+  if (result.error) {
+    auth.recordAttempt(who, req.ip, false);
+    return back(res, req.user ? '/account' : '/login', result.error, 'fail');
+  }
+  auth.recordAttempt(who, req.ip, true);
+  auth.markVerified(result.user.id);
+  back(res, req.user ? '/' : '/login',
+    'Your email address is confirmed. Everything is open to you now.', 'ok');
+});
+
 app.get('/verify', (req, res) => {
   const user = auth.useToken(String(req.query.t || ''), 'verify');
   if (!user) {
@@ -1612,21 +1633,28 @@ app.post('/forgot', (req, res) => {
 
 app.get('/reset', (req, res) => {
   const token = String(req.query.t || '');
-  // Looked at but not spent: spending it here would burn the link on a page
-  // load, and a mail scanner that follows links would lock people out.
-  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-  const row = db.prepare(`
-    SELECT 1 FROM email_tokens WHERE kind = 'reset' AND used_at IS NULL AND expires_at > ?
-  `).get(now);
+  const email = String(req.query.email || '');
 
-  if (!token || !row) {
+  /* Two ways to prove it is your inbox: the link, or the code that came in
+     the same message. The link is one tap on the device that opened the
+     email; the code is what you need when that device is not this one.
+
+     A token in the URL is looked at but not spent here - spending it on a
+     page load would burn the link the moment a mail scanner followed it. */
+  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const anyLive = db.prepare(
+    "SELECT 1 FROM email_tokens WHERE kind = 'reset' AND used_at IS NULL AND expires_at > ?"
+  ).get(now);
+
+  if (token && !anyLive) {
     return send(req, res, {
-      title: 'That link has expired',
-      body: `<div class="narrow"><div class="card pad">
-        <h1>That link has expired</h1>
-        <p class="muted">Reset links last one hour and work once.</p>
-        <p><a class="btn" href="/forgot">Send a new one</a></p>
-      </div></div>`,
+      title: 'That link has expired', bare: true,
+      body: `<div class="auth-split one"><div class="auth-form"><div class="auth-card">
+        <h2>That link has expired</h2>
+        <p class="sub">Reset links and codes last one hour and work once.
+          ${V.bn('লিংক ও কোড এক ঘণ্টা পর কাজ করে না।')}</p>
+        <a class="btn btn-lg btn-block" href="/forgot">Send a new one</a>
+      </div></div></div>`,
     });
   }
 
@@ -1637,16 +1665,31 @@ app.get('/reset', (req, res) => {
   <div class="auth-form">
     <div class="auth-card">
       <h2>Choose a new password</h2>
-      <p class="sub">At least 8 characters. Everything signed in as you will be signed out.</p>
+      <p class="sub">${token
+        ? 'Set your new password below.'
+        : 'Enter the six-digit code we emailed you, then your new password.'}
+        <span class="bn">${token ? 'নতুন পাসওয়ার্ড দিন।' : 'ইমেইলে পাঠানো ৬ সংখ্যার কোড আর নতুন পাসওয়ার্ড দিন।'}</span></p>
+
       <form method="post" action="/reset" class="auth-fields">
-        <input type="hidden" name="t" value="${V.esc(token)}">
-        <label for="r-pass">New password</label>
+        ${token ? `<input type="hidden" name="t" value="${V.esc(token)}">` : `
+          <label for="r-email">Email address ${V.bn('ইমেইল')}</label>
+          <input id="r-email" name="email" type="email" required autocomplete="email"
+                 value="${V.esc(email)}" placeholder="you@example.com">
+
+          <label for="r-code">Six-digit code ${V.bn('৬ সংখ্যার কোড')}</label>
+          <input id="r-code" name="code" class="code-input" required
+                 inputmode="numeric" autocomplete="one-time-code" maxlength="7"
+                 pattern="[0-9 ]{6,7}" placeholder="000000">`}
+
+        <label for="r-pass">New password ${V.bn('নতুন পাসওয়ার্ড')}</label>
         <input id="r-pass" name="password" type="password" required minlength="8"
                autocomplete="new-password" placeholder="At least 8 characters">
         <label for="r-pass2">Confirm it</label>
         <input id="r-pass2" name="password2" type="password" required minlength="8"
                autocomplete="new-password" placeholder="Type it again">
+
         <button class="btn btn-lg btn-block" type="submit">Save the new password</button>
+        <p class="swap">No code? <a href="/forgot">Send another</a></p>
       </form>
     </div>
   </div>
@@ -1656,13 +1699,34 @@ app.get('/reset', (req, res) => {
 
 app.post('/reset', (req, res) => {
   const b = req.body || {};
+  // Keep them on whichever way in they were using when something goes wrong.
+  const backTo = b.t
+    ? '/reset?t=' + encodeURIComponent(String(b.t))
+    : '/reset?email=' + encodeURIComponent(String(b.email || ''));
+
   if (String(b.password || '') !== String(b.password2 || '')) {
-    return back(res, '/reset?t=' + encodeURIComponent(String(b.t || '')),
-      'The two passwords are not the same.', 'fail');
+    return back(res, backTo, 'The two passwords are not the same.', 'fail');
   }
 
-  const user = auth.useToken(String(b.t || ''), 'reset');
-  if (!user) return back(res, '/forgot', 'That link has expired. Ask for a new one.', 'fail');
+  let user;
+  if (b.t) {
+    user = auth.useToken(String(b.t), 'reset');
+    if (!user) return back(res, '/forgot', 'That link has expired. Ask for a new one.', 'fail');
+  } else {
+    /* Guessing a six-digit code is only hard if guessing is slow, so the
+       attempt is rate limited by address as well as counted on the row. */
+    const who = 'code:' + auth.normalizeEmail(b.email);
+    if (auth.tooManyFailures(who, req.ip)) {
+      return back(res, backTo, 'Too many attempts. Wait a few minutes and try again.', 'fail');
+    }
+    const result = auth.useCode(b.email, b.code, 'reset');
+    if (result.error) {
+      auth.recordAttempt(who, req.ip, false);
+      return back(res, backTo, result.error, 'fail');
+    }
+    auth.recordAttempt(who, req.ip, true);
+    user = result.user;
+  }
 
   try {
     auth.setPassword(user.id, b.password, user);
@@ -5126,9 +5190,23 @@ app.get('/account', need(), (req, res) => {
         <b>Your email address is not confirmed yet.</b>
         You can look around, but taking work and withdrawing are closed until it is.
         That is what keeps one person from running a row of accounts.
+        ${V.bn('ইমেইল কনফার্ম না করলে কাজ নেওয়া বা টাকা তোলা যাবে না।')}
+
+        <form method="post" action="/verify-code" class="code-form">
+          ${csrfField(req)}
+          <label for="v-code">Type the six-digit code from the email
+            ${V.bn('ইমেইলে পাঠানো ৬ সংখ্যার কোড')}</label>
+          <div class="code-row">
+            <input id="v-code" name="code" class="code-input" required
+                   inputmode="numeric" autocomplete="one-time-code" maxlength="7"
+                   pattern="[0-9 ]{6,7}" placeholder="000000">
+            <button class="btn btn-sm" type="submit">Confirm</button>
+          </div>
+        </form>
+
         <form method="post" action="/resend-verification" class="inline-form">
           ${csrfField(req)}
-          <button class="btn btn-sm" type="submit">Send the link again</button>
+          <button class="btn btn-ghost btn-sm" type="submit">Send it again</button>
         </form>
       </div>`}
 

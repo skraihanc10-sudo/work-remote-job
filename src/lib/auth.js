@@ -248,8 +248,28 @@ function hashToken(token) {
   return crypto.createHash('sha256').update(String(token)).digest('hex');
 }
 
+/* Six digits, drawn properly rather than from Math.random.
+
+   Leading zeros are kept - dropping them would quietly make some codes five
+   digits and halve the guessing space for anybody who noticed.
+*/
+function newCode() {
+  return String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+}
+
+// How many wrong codes before the row is burned. Six digits is a million
+// guesses; without a cap that is an afternoon's work for a script.
+const MAX_CODE_TRIES = 5;
+
+/* Issue one row usable two ways: a long link token, and a short code.
+
+   Returns { token, code }. They share an expiry and a used_at, so spending
+   either spends both - which is what stops somebody holding the code back
+   after using the link.
+*/
 function issueToken(userId, kind) {
   const token = crypto.randomBytes(32).toString('base64url');
+  const code = newCode();
   const hours = TOKEN_HOURS[kind] || 1;
   const expires = new Date(Date.now() + hours * 3600000)
     .toISOString().slice(0, 19).replace('T', ' ');
@@ -258,9 +278,62 @@ function issueToken(userId, kind) {
   // for, so a forwarded or intercepted email goes stale.
   db.prepare("UPDATE email_tokens SET used_at = datetime('now') WHERE user_id = ? AND kind = ? AND used_at IS NULL")
     .run(userId, kind);
-  db.prepare('INSERT INTO email_tokens (user_id, kind, token_hash, expires_at) VALUES (?, ?, ?, ?)')
-    .run(userId, kind, hashToken(token), expires);
-  return token;
+  db.prepare(`INSERT INTO email_tokens (user_id, kind, token_hash, code_hash, expires_at)
+              VALUES (?, ?, ?, ?, ?)`)
+    .run(userId, kind, hashToken(token), hashToken(code), expires);
+  return { token, code };
+}
+
+/* Spend a code, given the address that was sent it.
+
+   The address is part of the check on purpose: a code alone is six digits
+   against every outstanding code on the site, which is a much easier target
+   than six digits against one person's.
+
+   Returns { user } on success, or { error } saying what to tell them. A wrong
+   code counts against the row, and enough wrong ones burn it - otherwise the
+   code can simply be guessed.
+*/
+function useCode(email, code, kind) {
+  const clean = String(code || '').replace(/\D/g, '');
+  if (clean.length !== 6) return { error: 'A code is six digits.' };
+
+  const user = db.prepare('SELECT * FROM users WHERE lower(email) = ?')
+    .get(normalizeEmail(email));
+  // Same answer whether the address is unknown or the code is wrong: saying
+  // which would turn this into a way of asking who has an account.
+  const wrong = { error: 'That code is not right, or it has expired.' };
+  if (!user) return wrong;
+
+  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const row = db.prepare(`
+    SELECT * FROM email_tokens
+    WHERE user_id = ? AND kind = ? AND used_at IS NULL AND expires_at > ?
+    ORDER BY id DESC LIMIT 1
+  `).get(user.id, kind, now);
+  if (!row || !row.code_hash) return wrong;
+
+  if (row.attempts >= MAX_CODE_TRIES) {
+    return { error: 'Too many wrong codes. Ask for a new one.' };
+  }
+
+  if (hashToken(clean) !== row.code_hash) {
+    db.prepare('UPDATE email_tokens SET attempts = attempts + 1 WHERE id = ?').run(row.id);
+    const left = MAX_CODE_TRIES - (row.attempts + 1);
+    return {
+      error: left > 0
+        ? `That code is not right. ${left} ${left === 1 ? 'try' : 'tries'} left.`
+        : 'Too many wrong codes. Ask for a new one.',
+    };
+  }
+
+  // Claim it, and only if it is still unclaimed - two tabs cannot both win.
+  const claimed = db.prepare(
+    "UPDATE email_tokens SET used_at = datetime('now') WHERE id = ? AND used_at IS NULL"
+  ).run(row.id);
+  if (claimed.changes !== 1) return wrong;
+
+  return { user };
 }
 
 /* Spend a token, returning the user it belonged to or null.
@@ -416,7 +489,7 @@ module.exports = {
   isAdminEmail, adminEmails, signInWithGoogle,
   signUpWithPassword, signInWithPassword, setPassword,
   tooManyFailures, recordAttempt, normalizeEmail,
-  issueToken, useToken, markVerified, sweepTokens,
+  issueToken, useToken, useCode, markVerified, sweepTokens,
   startSession, endSession, userFor, sweepSessions,
   recordLogin, accountsOnIp, sharedIps,
   unseenNotices, markNoticeSeen,
