@@ -29,13 +29,19 @@
      --brand is a shade deeper than the logo's own blue so that white text on
      it clears the contrast floor; --brand-bright is the logo colour itself,
      used where nothing sits on top of it. */
-  --brand:        #0B6FD8;
-  --brand-dk:     #0857AC;
-  --brand-bg:     #E9F2FD;
-  --brand-bright: #0A7CF0;
+  /* Sampled from the logo file itself: #0084EC and #525252.
 
-  --navy:      #363B41;      /* the logo's dark grey: headings, footer, bands */
-  --navy-dk:   #24282D;
+     --brand-bright is that blue exactly, used for fills and the mark.
+     --brand is the same hue taken darker, because white text on the logo's own
+     blue comes to 3.5:1 and buttons and links need 4.5. Two shades of one
+     colour, not a different colour. */
+  --brand:        #0067BE;
+  --brand-dk:     #00539A;
+  --brand-bg:     #E5F1FD;
+  --brand-bright: #0084EC;
+
+  --navy:      #3B3E42;      /* the logo's dark grey: headings, footer, bands */
+  --navy-dk:   #292C2F;
   --navy-bg:   #EEF1F4;
   --green:     #157A3A;      /* status only: money in, approved, paid */
   --green-dk:  #10632E;
@@ -43,7 +49,7 @@
   --band:      #0B6FD8;      /* the mid-blue feature bands */
   --band-2:    #0A7CF0;
   --sky:       #EEF5FD;      /* the pale blue section ground */
-  --violet:    #6C63FF;      /* service card icons */
+  --violet:    #6C63FF;      /* second series on the admin charts */
   --amber:     #96650C;
   --amber-bg:  #FBF2E0;
   --red:       #B3392E;
@@ -144,6 +150,11 @@ main.wrap { padding-top: 26px; padding-bottom: 70px; }
   display: grid; place-items: center; flex: none;
 }
 .brand-mark svg { display: block; }
+
+/* The real lockup, sized by height so its own proportions decide the width. */
+.brand-logo { display: block; height: 30px; width: auto; flex: none; }
+.foot-mark .brand-logo { height: 32px; }
+@media (max-width: 900px) { .brand-logo { height: 26px; } }
 .brand-mark-img { display: block; width: 34px; height: 34px; object-fit: contain; flex: none; }
 
 /* Two-tone, the way the logo is: the name in the dark neutral, the rest in
@@ -731,9 +742,11 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
   background: rgba(255,255,255,.72); border: 1px solid #DCE7F5;
   border-radius: 14px; padding: 26px 24px;
 }
+/* Was violet, which was the one thing on the page still arguing with the
+   logo. The brand blue is the only accent the site needs. */
 .svc-icon {
   display: grid; place-items: center; width: 54px; height: 54px; border-radius: 50%;
-  background: var(--violet); color: #fff; margin-bottom: 16px;
+  background: var(--brand-bright); color: #fff; margin-bottom: 16px;
 }
 .svc-icon svg { width: 26px; height: 26px; }
 .svc-card h3 { font-size: 17px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); margin-bottom: 10px; }

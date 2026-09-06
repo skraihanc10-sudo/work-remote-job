@@ -246,7 +246,12 @@ app.get('/favicon.svg', (req, res) => {
 });
 
 // Older browsers and bookmark bars still ask for this by name.
-app.get('/favicon.ico', (req, res) => res.redirect(301, '/favicon.svg'));
+/* Browsers that still ask by name get the real mark rather than the drawn
+   fallback, so the tab icon is the actual logo wherever it appears. */
+app.get('/favicon.ico', (req, res) => {
+  const real = path.join(__dirname, 'web', 'assets', 'mark.png');
+  res.redirect(301, fs.existsSync(real) ? '/assets/mark.png' : '/favicon.svg');
+});
 
 app.get('/proof/:name', need(), (req, res) => {
   const name = path.basename(String(req.params.name));

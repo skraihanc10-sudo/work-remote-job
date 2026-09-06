@@ -18,6 +18,8 @@ const esc = s => String(s == null ? '' : s)
 const fs = require('fs');
 const path = require('path');
 const LOGO = path.join(__dirname, '..', 'web', 'assets', 'logo.png');
+const LOGO_LIGHT = path.join(__dirname, '..', 'web', 'assets', 'logo-light.png');
+const MARK = path.join(__dirname, '..', 'web', 'assets', 'mark.png');
 
 /* Stylesheet and script are cached for an hour, so without a version in the
    URL a deploy leaves people on the old CSS until it expires - which looks
@@ -47,9 +49,24 @@ const JS_V = assetVersion('app.js');
    A real logo.png still wins if one is present, so replacing this is a matter
    of dropping the file in rather than editing code.
 */
+/* The whole lockup - mark and name together - when the real file is there.
+
+   It already contains the words, so the separate text beside it has to go, or
+   the name appears twice. `light` swaps in the white version, which exists
+   because the lockup's grey half is invisible on the dark footer.
+*/
+function brandLockup(light) {
+  const file = light ? LOGO_LIGHT : LOGO;
+  if (!fs.existsSync(file)) return null;
+  const name = light ? 'logo-light.png' : 'logo.png';
+  return `<img class="brand-logo" src="/assets/${name}?v=${assetVersion(name)}"
+    alt="${SITE}" width="600" height="162">`;
+}
+
 function logoMark() {
-  if (fs.existsSync(LOGO)) {
-    return '<img class="brand-mark-img" src="/assets/logo.png" alt="" width="34" height="34">';
+  if (fs.existsSync(MARK)) {
+    return `<img class="brand-mark-img" src="/assets/mark.png?v=${assetVersion('mark.png')}"
+      alt="" width="34" height="34">`;
   }
   return `<span class="brand-mark" aria-hidden="true">
     <svg viewBox="0 0 64 64" width="34" height="34" role="img">
@@ -299,6 +316,7 @@ function layout({ title, user, active, body, flash, wide, notices, csrf, bare, d
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Figtree:wght@400;500;600&family=Hind+Siliguri:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="/assets/app.css?v=${CSS_V}">
+<link rel="icon" href="/assets/mark.png" sizes="512x512" type="image/png">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/icon.png">
 <meta name="theme-color" content="#0A7CF0">
@@ -316,8 +334,8 @@ ${verifyTags()}
 <header class="top${bare ? ' top-bare' : ''}">
   <div class="wrap top-inner">
     <a href="/" class="brand">
-      ${logoMark()}
-      <span class="brand-name">Remote <b>Work BD</b></span>
+      ${brandLockup(false)
+        || `${logoMark()}<span class="brand-name">Remote <b>Work BD</b></span>`}
     </a>
     ${bare ? '' : `<nav class="nav">${deskNav(user, active)}</nav>`}
     ${bare ? '' : `<div class="head-mobile">
@@ -358,7 +376,8 @@ ${body}
 <footer class="foot">
   <div class="wrap foot-grid">
     <div class="foot-brand">
-      <div class="foot-mark">${logoMark()}<span>Remote <b>Work BD</b></span></div>
+      <div class="foot-mark">${brandLockup(true)
+        || `${logoMark()}<span>Remote <b>Work BD</b></span>`}</div>
       <p>Microjob and freelancing site to make money online. Every job is funded
          before it goes live.</p>
       ${getSetting('business_address', '') ? `<h5>Address</h5>
