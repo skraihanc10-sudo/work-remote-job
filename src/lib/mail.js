@@ -22,6 +22,7 @@
 const crypto = require('crypto');
 const { db, getSetting, audit } = require('./db');
 const smtp = require('./smtp');
+const apimail = require('./apimail');
 
 // Environment wins over the settings table: a deployment secret belongs in the
 // environment, and it means the admin screen cannot lock anybody out of their
@@ -36,6 +37,18 @@ function config() {
   const host = pick('SMTP_HOST', 'smtp_host');
   const port = Number(pick('SMTP_PORT', 'smtp_port')) || 587;
   const from = pick('MAIL_FROM', 'mail_from');
+
+  /* Two ways out of here, and the API wins when it is set up.
+
+     SMTP is the better-understood one, but it needs an outbound port that
+     many hosts refuse to open - so the API, which is an ordinary HTTPS
+     request, is the one that works where the site is actually running.
+     Whichever is configured, the rest of this file cannot tell the
+     difference. */
+  const apiProvider = pick('MAIL_API', 'mail_api_provider');
+  const apiKey = pick('MAIL_API_KEY', 'mail_api_key');
+  const viaApi = !!apiProvider && !!apiKey;
+
   return {
     host, port,
     user: pick('SMTP_USER', 'smtp_user'),
@@ -43,9 +56,13 @@ function config() {
     from,
     fromName: pick('MAIL_FROM_NAME', 'mail_from_name') || 'Remote Work BD',
     secure: port === 465,
+    apiProvider, apiKey, viaApi,
+    // How it is being sent, for anything that reports the setup back to a
+    // person - "as smtp.gmail.com" is a lie once mail goes out over HTTPS.
+    via: viaApi ? apiProvider : host,
     // Configured means: somewhere to send it, and an address to send it from.
     // The switch alone is not enough, and neither is half the connection.
-    enabled: getSetting('mail_enabled', '0') === '1' && !!host && !!from,
+    enabled: getSetting('mail_enabled', '0') === '1' && (viaApi || !!host) && !!from,
   };
 }
 
@@ -242,7 +259,8 @@ async function flush(limit = 20) {
     }
 
     try {
-      await smtp.send(cfg, {
+      const carry = cfg.viaApi ? apimail : smtp;
+      await carry.send(cfg, {
         from: cfg.from, fromName: cfg.fromName,
         to: row.to_email,
         subject: row.subject,

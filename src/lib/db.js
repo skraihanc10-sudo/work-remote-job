@@ -725,6 +725,13 @@ const DEFAULTS = {
   mail_enabled: '1',
   mail_from_name: 'Remote Work BD',
   mail_from: '',
+
+  /* Mail can leave by API instead of SMTP, and on a host that blocks outbound
+     SMTP ports it is the only way it leaves at all. Set, these two win over
+     the SMTP settings below. */
+  mail_api_provider: '',
+  mail_api_key: '',
+
   smtp_host: '',
   smtp_port: '587',
   smtp_user: '',

@@ -25,6 +25,7 @@ const referrals = require('./lib/referrals');
 const mail = require('./lib/mail');
 const stats = require('./lib/stats');
 const smtp = require('./lib/smtp');
+const apimail = require('./lib/apimail');
 const passwords = require('./lib/passwords');
 const quality = require('./lib/quality');
 const money = require('./lib/money');
@@ -155,7 +156,9 @@ app.post('*splat', (req, res, next) => {
 // ------------------------------------------------------------------ helpers
 function flashOf(req) {
   if (!req.query.msg) return null;
-  return { text: String(req.query.msg).slice(0, 300), kind: String(req.query.kind || 'info') };
+  // 300 cut a diagnostic off mid-word ("- tried con"), losing the part that
+  // named the addresses that failed - which was the useful half.
+  return { text: String(req.query.msg).slice(0, 600), kind: String(req.query.kind || 'info') };
 }
 
 function send(req, res, opts) {
@@ -4177,8 +4180,13 @@ const EDITABLE = [
   { key: 'mail_from', label: 'Send from address', text: true, group: 'Email',
     hint: 'Must be an address your mail server is allowed to send as.' },
   { key: 'mail_from_name', label: 'Send from name', text: true, group: 'Email' },
+  { key: 'mail_api_provider', label: 'Mail API', text: true, group: 'Email',
+    hint: 'brevo or resend. Set, mail goes out over HTTPS and the SMTP settings below are '
+      + 'ignored - which is what to use if your host blocks SMTP ports.' },
+  { key: 'mail_api_key', label: 'Mail API key', text: true, secret: true, group: 'Email',
+    hint: 'Leave blank to keep the one already saved.' },
   { key: 'smtp_host', label: 'SMTP host', text: true, group: 'Email',
-    hint: 'For example smtp.gmail.com, or smtp-relay.brevo.com.' },
+    hint: 'For example smtp.gmail.com, or smtp-relay.brevo.com. Ignored if a mail API is set.' },
   { key: 'smtp_port', label: 'SMTP port', group: 'Email',
     hint: '587 for STARTTLS, 465 for TLS. Both are encrypted; plain sending is refused.' },
   { key: 'smtp_user', label: 'SMTP username', text: true, group: 'Email' },
@@ -4396,6 +4404,49 @@ const MAIL_PROVIDERS = {
       'Copy it and paste it below.',
     ],
   },
+  /* The two that need no port at all.
+
+     `api: true` marks a provider that takes an API key over HTTPS instead of
+     signing in to an SMTP server. That is the only kind that works on a host
+     which blocks outbound SMTP, which most container hosts do - so these are
+     offered first once a port has timed out. */
+  brevo_api: {
+    name: 'Brevo, without SMTP',
+    note: 'Same Brevo account, sent over HTTPS. Works where SMTP ports are blocked.',
+    api: 'brevo',
+    host: '', port: 0,
+    userLabel: 'The address mail is sent from',
+    userPlaceholder: 'you@example.com',
+    passLabel: 'Brevo API key',
+    passHint: 'Starts with xkeysib-. From SMTP & API, on the API keys tab - not the SMTP tab.',
+    free: '300 messages a day, free. No port needed.',
+    steps: [
+      'Create an account at brevo.com and confirm your address.',
+      'Open the account menu, then SMTP & API.',
+      'Go to the API keys tab - not the SMTP tab - and press Generate a new API key.',
+      'Name it Remote Work BD and copy the key. It starts with xkeysib- and is shown once.',
+      'Under Senders, add the address you want mail to come from and confirm the mail Brevo sends you.',
+      'Paste that same address and the key below.',
+    ],
+  },
+  resend_api: {
+    name: 'Resend',
+    note: 'Sent over HTTPS. Needs your own domain, and works where SMTP is blocked.',
+    api: 'resend',
+    host: '', port: 0,
+    userLabel: 'The address mail is sent from',
+    userPlaceholder: 'support@yourdomain.com',
+    passLabel: 'Resend API key',
+    passHint: 'Starts with re_. From the API Keys page.',
+    free: '3,000 messages a month, free. No port needed.',
+    steps: [
+      'Create an account at resend.com.',
+      'Open Domains, add your domain and put the DNS records it shows you at your registrar.',
+      'Wait for it to say Verified. Mail can only be sent from a domain you own.',
+      'Open API Keys, press Create API Key, and copy it.',
+      'Paste it below with an address at that domain.',
+    ],
+  },
   other: {
     name: 'Something else',
     note: 'Any SMTP server - your host, your own mail server, Mailgun, Postmark.',
@@ -4426,7 +4477,8 @@ app.get('/admin/mail/setup', need('admin'), (req, res) => {
    Nothing is saved until it has actually connected and signed in.</p>
 
 ${cfg.enabled ? `<div class="alert alert-ok">
-  <b>Email already works.</b> Sending through ${V.esc(cfg.host)} as ${V.esc(cfg.from)}.
+  <b>Email already works.</b> Sending through ${V.esc(cfg.viaApi
+    ? `the ${cfg.apiProvider} API` : cfg.host)} as ${V.esc(cfg.from)}.
   Filling this in again will replace those settings.</div>` : ''}
 
 <div class="card pad">
@@ -4478,6 +4530,9 @@ ${!pick ? '' : (() => {
     </div>
     ${V.field({ label: 'Send from address', name: 'from', required: true,
       value: getSetting('mail_from', ''), placeholder: 'noreply@yourdomain.com' })}`
+    : v.api ? `<p class="fine">No host or port to fill in: this goes out as an ordinary
+        HTTPS request to <b>${V.esc(v.name)}</b>, on the same port the site itself uses.
+        That is why it still works when a host blocks SMTP.</p>`
     : `<p class="fine">Host and port are set for you:
         <b>${V.esc(v.host)}</b> on port <b>${v.port}</b>, encrypted with STARTTLS.
         Mail will be sent from the address above.</p>`}
@@ -4564,16 +4619,24 @@ app.post('/admin/mail/setup', need('admin'), async (req, res) => {
   const fromName = String(b.fromName || '').trim() || 'Remote Work BD';
 
   if (!user || !pass) return back(res, `/admin/mail/setup?p=${b.provider}`, 'Fill in both the address and the password.', 'fail');
-  if (!host) return back(res, `/admin/mail/setup?p=${b.provider}`, 'Give the SMTP host.', 'fail');
+  if (!v.api && !host) {
+    return back(res, `/admin/mail/setup?p=${b.provider}`, 'Give the SMTP host.', 'fail');
+  }
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(from)) {
     return back(res, `/admin/mail/setup?p=${b.provider}`, 'That send-from address does not look like an email address.', 'fail');
   }
 
-  const trial = { host, port, user, pass, secure: port === 465 };
+  /* An API provider carries the key where an SMTP one carries a password,
+     and sends over 443 rather than a port that may be closed. Everything
+     after this point is the same either way. */
+  const trial = v.api
+    ? { apiProvider: v.api, apiKey: pass, from: user, fromName, viaApi: true }
+    : { host, port, user, pass, secure: port === 465 };
+  const carry = v.api ? apimail : smtp;
 
   // Prove it works before writing anything down.
   try {
-    await smtp.check(trial);
+    await carry.check(trial);
   } catch (err) {
     /* `err.message` used to be printed straight out, and an error with no
        message - which is how Node reports "none of the host's addresses could
@@ -4583,7 +4646,9 @@ app.post('/admin/mail/setup', need('admin'), async (req, res) => {
     const detail = err.message || `${err.code || err.name || 'the connection failed'}`;
     const advice = mailAdvice(detail, b.provider);
     return back(res, `/admin/mail/setup?p=${b.provider}`,
-      advice ? `${advice}  (${detail})` : `Could not sign in: ${detail}`, 'fail');
+      // No prefix: both transports now return a full sentence, and "Could not
+      // sign in" was wrong anyway for an API key, which nothing signs in to.
+      advice ? `${advice}  (${detail})` : detail, 'fail');
   }
 
   // Then prove a message actually leaves.
@@ -4591,10 +4656,12 @@ app.post('/admin/mail/setup', need('admin'), async (req, res) => {
     const { html, text } = mail.render({
       heading: 'Email is working',
       intro: 'Sent from the setup page, through the settings you just entered.',
-      lines: [`Through ${host} on port ${port}, as ${from}.`,
+      lines: [v.api
+        ? `Through the ${v.name} API over HTTPS, as ${from}.`
+        : `Through ${host} on port ${port}, as ${from}.`,
         'Confirmations, receipts and announcements will now reach people.'],
     });
-    await smtp.send(trial, {
+    await carry.send(trial, {
       from, fromName, to: req.user.email,
       subject: 'Remote Work BD - email is working', text, html,
     });
@@ -4605,10 +4672,25 @@ app.post('/admin/mail/setup', need('admin'), async (req, res) => {
       `Signed in, but the message was refused. ${advice || ''} (${detail})`.trim(), 'fail');
   }
 
-  setSetting('smtp_host', host);
-  setSetting('smtp_port', String(port));
-  setSetting('smtp_user', user);
-  setSetting('smtp_pass', pass);
+  /* Write down the way that was just proven, and clear the other one.
+
+     Leaving stale SMTP settings behind next to a working API key would mean
+     the Email page shows a host that nothing sends through, and anybody
+     debugging it later starts from a wrong answer. */
+  if (v.api) {
+    setSetting('mail_api_provider', v.api);
+    setSetting('mail_api_key', pass);
+    setSetting('smtp_host', '');
+    setSetting('smtp_user', '');
+    setSetting('smtp_pass', '');
+  } else {
+    setSetting('smtp_host', host);
+    setSetting('smtp_port', String(port));
+    setSetting('smtp_user', user);
+    setSetting('smtp_pass', pass);
+    setSetting('mail_api_provider', '');
+    setSetting('mail_api_key', '');
+  }
   setSetting('mail_from', from);
   setSetting('mail_from_name', fromName);
   setSetting('mail_enabled', '1');
@@ -4616,7 +4698,8 @@ app.post('/admin/mail/setup', need('admin'), async (req, res) => {
   // Anything queued while mail was off can go now.
   mail.flush(50).catch(e => console.error('first flush:', e.message));
 
-  audit(req.user.id, 'mail_configured', null, { host, port, from, provider: b.provider }, req.ip);
+  audit(req.user.id, 'mail_configured', null,
+    { via: v.api ? `${v.api} API` : `${host}:${port}`, from, provider: b.provider }, req.ip);
   back(res, '/admin/mail',
     `Email is on. A test was sent to ${req.user.email} - check it arrived, and look in spam if it did not.`,
     'ok');
@@ -4627,7 +4710,10 @@ app.post('/admin/mail/test', need('admin'), async (req, res) => {
   if (!to) return back(res, '/admin/settings', 'Give an address to send to.', 'fail');
 
   const cfg = mail.config();
-  if (!cfg.host) return back(res, '/admin/settings', 'Set an SMTP host first.', 'fail');
+  if (!cfg.viaApi && !cfg.host) {
+    return back(res, '/admin/settings', 'Set up email first - there is a guided page at '
+      + 'Email, Set up email.', 'fail');
+  }
   if (!cfg.from) return back(res, '/admin/settings', 'Set the address to send from first.', 'fail');
 
   // Sent directly rather than queued: the whole point is to find out now
@@ -4636,17 +4722,19 @@ app.post('/admin/mail/test', need('admin'), async (req, res) => {
     const { html, text } = mail.render({
       heading: 'Your email settings work',
       intro: 'This is a test from the admin settings page.',
-      lines: [`Sent through ${cfg.host} on port ${cfg.port} as ${cfg.from}.`,
+      lines: [cfg.viaApi
+        ? `Sent through the ${cfg.apiProvider} API as ${cfg.from}.`
+        : `Sent through ${cfg.host} on port ${cfg.port} as ${cfg.from}.`,
         'If you are reading this, receipts and notices will reach people too.'],
     });
-    await smtp.send(cfg, {
+    await (cfg.viaApi ? apimail : smtp).send(cfg, {
       from: cfg.from, fromName: cfg.fromName, to,
       subject: 'Remote Work BD - test email', text, html,
     });
-    audit(req.user.id, 'mail_test', null, { to, host: cfg.host }, req.ip);
+    audit(req.user.id, 'mail_test', null, { to, via: cfg.via }, req.ip);
     back(res, '/admin/settings', `Sent to ${to}. If it does not arrive, check the spam folder.`, 'ok');
   } catch (err) {
-    const advice = mailAdvice(err.message, /gmail/i.test(cfg.host) ? 'gmail' : '');
+    const advice = mailAdvice(err.message, /gmail/i.test(cfg.host || '') ? 'gmail' : '');
     back(res, '/admin/settings',
       advice ? `${advice}  (${err.message})` : `It did not send: ${err.message}`, 'fail');
   }
@@ -6480,7 +6568,9 @@ const server = app.listen(PORT, HOST, () => {
   }
   console.log(`  sign-in   ${google.configured() ? 'Google + password' : 'password only (Google not configured)'}`);
   const mailCfg = mail.config();
-  console.log(`  mail      ${mailCfg.enabled ? `on, via ${mailCfg.host}:${mailCfg.port} as ${mailCfg.from}` : 'off - nothing will be sent'}`);
+  console.log(`  mail      ${mailCfg.enabled
+    ? `on, via ${mailCfg.viaApi ? `the ${mailCfg.apiProvider} API` : `${mailCfg.host}:${mailCfg.port}`} as ${mailCfg.from}`
+    : 'off - nothing will be sent'}`);
   console.log(`  admins    ${auth.adminEmails().join(', ') || 'none - set ADMIN_EMAILS'}`);
   console.log(`  payments  EPS ${on(eps.configured())}, Cryptomus ${on(cryptomus.configured())}`);
   /* Say what is actually true.
