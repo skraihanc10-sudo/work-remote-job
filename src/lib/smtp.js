@@ -199,10 +199,36 @@ function dotStuff(message) {
   return message.replace(/\r\n\./g, '\r\n..');
 }
 
+/* Turn a connection failure into something with words in it.
+
+   Node reports "could not reach any of this host's addresses" as an
+   AggregateError, and an AggregateError's `message` is the empty string - the
+   real reasons are in `.errors`. Rejecting with it as-is produced an admin
+   page that said "Could not sign in:" and then stopped, which is the least
+   helpful thing a diagnostic can do. It matters here because a host with no
+   IPv6 route hits exactly this path: smtp.gmail.com answers on both families,
+   the AAAA address is tried, nothing can reach it, and the failure arrives
+   nameless.
+
+   The code is kept on the new error so the advice below can still match it. */
+function connectError(err, host, port) {
+  if (err && err.message) return err;
+  const parts = (err && err.errors ? err.errors : [])
+    .map(e => (e && (e.message || e.code)) || String(e))
+    .filter(Boolean);
+  const code = (err && err.code) || (err && err.errors && err.errors[0] && err.errors[0].code) || '';
+  const out = new Error(
+    `Could not open a connection to ${host}:${port}`
+    + (code ? ` (${code})` : '')
+    + (parts.length ? ` - tried ${parts.join(', ')}` : '.'));
+  out.code = code;
+  return out;
+}
+
 // -------------------------------------------------------------------- sending
 async function connect(host, port, secure) {
   return new Promise((resolve, reject) => {
-    const onError = err => { cleanup(); reject(err); };
+    const onError = err => { cleanup(); reject(connectError(err, host, port)); };
     const timer = setTimeout(() => {
       cleanup();
       socket.destroy();
@@ -221,11 +247,12 @@ async function connect(host, port, secure) {
 
 async function upgrade(socket, host) {
   return new Promise((resolve, reject) => {
+    const onError = err => reject(connectError(err, host, 'TLS'));
     const secure = tls.connect({ socket, servername: net.isIP(host) ? undefined : host }, () => {
-      secure.removeListener('error', reject);
+      secure.removeListener('error', onError);
       resolve(secure);
     });
-    secure.once('error', reject);
+    secure.once('error', onError);
   });
 }
 

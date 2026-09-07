@@ -4527,6 +4527,11 @@ function mailAdvice(message, provider) {
   if (/ENOTFOUND|getaddrinfo/i.test(m)) {
     return 'That host name does not resolve. Check the spelling of the SMTP host.';
   }
+  if (/ENETUNREACH|EHOSTUNREACH|EAFNOSUPPORT|Could not open a connection/i.test(m)) {
+    return 'This server could not reach the mail host at all, so the password was never tried. '
+      + 'That is usually the port being blocked where the site is hosted, or no route to the '
+      + 'address. Try 465 if you used 587, or the other way round.';
+  }
   if (/ECONNREFUSED/i.test(m)) {
     return 'Nothing is listening on that port. Try 587, or 465 if your provider asks for it.';
   }
@@ -4570,9 +4575,15 @@ app.post('/admin/mail/setup', need('admin'), async (req, res) => {
   try {
     await smtp.check(trial);
   } catch (err) {
-    const advice = mailAdvice(err.message, b.provider);
+    /* `err.message` used to be printed straight out, and an error with no
+       message - which is how Node reports "none of the host's addresses could
+       be reached" - produced a page that said "Could not sign in:" and nothing
+       more. Never show an empty reason: a diagnostic that says nothing sends
+       people looking for a wrong password that was never the problem. */
+    const detail = err.message || `${err.code || err.name || 'the connection failed'}`;
+    const advice = mailAdvice(detail, b.provider);
     return back(res, `/admin/mail/setup?p=${b.provider}`,
-      advice ? `${advice}  (${err.message})` : `Could not sign in: ${err.message}`, 'fail');
+      advice ? `${advice}  (${detail})` : `Could not sign in: ${detail}`, 'fail');
   }
 
   // Then prove a message actually leaves.
@@ -4588,9 +4599,10 @@ app.post('/admin/mail/setup', need('admin'), async (req, res) => {
       subject: 'Remote Work BD - email is working', text, html,
     });
   } catch (err) {
-    const advice = mailAdvice(err.message, b.provider);
+    const detail = err.message || `${err.code || err.name || 'the connection failed'}`;
+    const advice = mailAdvice(detail, b.provider);
     return back(res, `/admin/mail/setup?p=${b.provider}`,
-      `Signed in, but the message was refused. ${advice || ''} (${err.message})`.trim(), 'fail');
+      `Signed in, but the message was refused. ${advice || ''} (${detail})`.trim(), 'fail');
   }
 
   setSetting('smtp_host', host);
