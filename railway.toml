@@ -2,7 +2,18 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "npm start"
+# node directly, not through npm.
+#
+# Every deploy replaces the container, and the platform stops the old one with
+# SIGTERM. Through `npm start` that signal reaches npm, which kills its child,
+# prints "npm error signal SIGTERM" and exits non-zero - so a perfectly normal
+# replacement was recorded as "Deployment crashed". The server's own shutdown
+# handler was working the whole time; npm was throwing away its exit code.
+#
+# Exec node and the signal arrives where the handler is, which finishes the
+# requests in flight and exits 0. It also means a real crash one day will
+# stand out instead of looking like every other deploy.
+startCommand = "node src/server.js"
 healthcheckPath = "/health"
 healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"
