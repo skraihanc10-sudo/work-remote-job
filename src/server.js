@@ -306,6 +306,7 @@ app.get('/robots.txt', (req, res) => {
     'Disallow: /proof/',
     'Disallow: /payout-proof/',
     'Disallow: /hooks/',
+    'Disallow: /admin/login',
     'Disallow: /dev-login',
     'Disallow: /logout',
     'Disallow: /verify',
@@ -1517,12 +1518,157 @@ app.post('/login', (req, res) => {
       + '&msg=' + encodeURIComponent(err.message) + '&kind=fail');
   }
 
+  /* An admin cannot come in through the public door.
+
+     The password was right, so this is not about keeping anyone out - it is
+     about there being one way in for the account that can move money, and that
+     way asking for more than a password. Sending them to the admin entrance
+     rather than refusing outright, because the person who typed it is almost
+     always the owner. */
+  if (user.role === 'admin') {
+    return res.redirect('/admin/login?msg='
+      + encodeURIComponent('Admin accounts sign in here, with a second step.') + '&kind=info');
+  }
+
   const session = auth.startSession(user.id);
   res.setHeader('Set-Cookie',
     `wrj_session=${session.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${session.maxAge}`);
   auth.recordLogin(user.id, req.ip, req.get('user-agent'));
   audit(user.id, 'login', `user:${user.id}`, { via: 'password' }, req.ip);
   res.redirect(safeNext(b.next) || '/');
+});
+
+/* ====================================================================
+   The admin entrance.
+
+   A separate door for the one account that can move money, adjust balances and
+   read everybody's details. Two things make it different from the public one:
+
+     - admin accounts are refused at /login, so there is exactly one way in;
+     - a password alone is not enough. A six-digit code goes to the admin
+       address and has to come back.
+
+   The second step is skipped while email is not configured, because a lockout
+   is not security - it is a site nobody can administer. The page says plainly
+   when that is the case, so it cannot be forgotten quietly.
+   ==================================================================== */
+
+function adminLoginPage(req, res, { stage, email, note } = {}) {
+  const mailOn = mail.enabled();
+  send(req, res, {
+    title: 'Admin sign-in', bare: true,
+    body: `
+<div class="auth-split one">
+  <div class="auth-form">
+    <div class="auth-card">
+      <h2>${stage === 'code' ? 'Enter your code' : 'Admin sign-in'}</h2>
+      <p class="sub">${stage === 'code'
+        ? `A six-digit code has gone to ${V.esc(email || 'your admin address')}. It lasts one hour.`
+        : 'This entrance is for staff accounts. Everyone else signs in on the normal page.'}</p>
+
+      ${note ? `<div class="alert alert-warn">${note}</div>` : ''}
+
+      ${stage === 'code' ? `
+      <form method="post" action="/admin/login/code" class="auth-fields">
+        <input type="hidden" name="email" value="${V.esc(email || '')}">
+        <label for="a-code">Six-digit code ${V.bn('৬ সংখ্যার কোড')}</label>
+        <input id="a-code" name="code" class="code-input" required autofocus
+               inputmode="numeric" autocomplete="one-time-code" maxlength="7"
+               pattern="[0-9 ]{6,7}" placeholder="000000">
+        <button class="btn btn-lg btn-block" type="submit">Sign in</button>
+        <p class="swap">Not you? <a href="/admin/login">Start again</a></p>
+      </form>`
+      : `
+      <form method="post" action="/admin/login" class="auth-fields">
+        <label for="a-id">Email or username</label>
+        <input id="a-id" name="identifier" required autocomplete="username" autofocus
+               placeholder="Your admin email">
+        <label for="a-pass">Password</label>
+        <input id="a-pass" name="password" type="password" required
+               autocomplete="current-password" placeholder="Your password">
+        <button class="btn btn-lg btn-block" type="submit">Continue</button>
+        <p class="fine">${mailOn
+          ? 'A one-time code will be sent to the admin address before you are signed in.'
+          : 'Email is not configured yet, so this is the password alone. Set up email and this becomes two steps.'}</p>
+        <p class="swap"><a href="/login">Not an admin? Sign in here</a></p>
+      </form>`}
+    </div>
+  </div>
+</div>`,
+  });
+}
+
+app.get('/admin/login', (req, res) => {
+  if (req.user && req.user.role === 'admin') return res.redirect('/admin');
+  adminLoginPage(req, res, { stage: 'password' });
+});
+
+app.post('/admin/login', (req, res) => {
+  const b = req.body || {};
+  let user;
+  try {
+    user = auth.signInWithPassword({ identifier: b.identifier, password: b.password, ip: req.ip });
+  } catch (err) {
+    return back(res, '/admin/login', err.message, 'fail');
+  }
+
+  /* A non-admin with the right password is turned away here rather than let
+     through as themselves: this door leads to the admin area, and quietly
+     signing somebody in somewhere they did not ask for is its own bug. */
+  if (user.role !== 'admin') {
+    audit(user.id, 'admin_login_refused', `user:${user.id}`, null, req.ip);
+    return back(res, '/login', 'That is not a staff account. Sign in here instead.', 'info');
+  }
+
+  // No email means no second step. Say so in the log, so a site running
+  // without it is visible afterwards rather than only at the moment.
+  if (!mail.enabled()) {
+    const session = auth.startSession(user.id);
+    res.setHeader('Set-Cookie',
+      `wrj_session=${session.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${session.maxAge}`);
+    auth.recordLogin(user.id, req.ip, req.get('user-agent'));
+    audit(user.id, 'admin_login', `user:${user.id}`, { secondStep: false }, req.ip);
+    return back(res, '/admin',
+      'Signed in. Email is not configured, so there was no second step - set it up and there will be.',
+      'warn');
+  }
+
+  const { code } = auth.issueToken(user.id, 'admin_login');
+  mail.adminCode(user, code, req.ip);
+  audit(user.id, 'admin_code_sent', `user:${user.id}`, null, req.ip);
+
+  adminLoginPage(req, res, { stage: 'code', email: user.email });
+});
+
+app.post('/admin/login/code', (req, res) => {
+  const b = req.body || {};
+  const email = auth.normalizeEmail(b.email);
+  const who = 'adminlogin:' + email;
+
+  if (auth.tooManyFailures(who, req.ip)) {
+    return back(res, '/admin/login', 'Too many attempts. Wait a few minutes and start again.', 'fail');
+  }
+
+  const result = auth.useCode(email, b.code, 'admin_login');
+  if (result.error) {
+    auth.recordAttempt(who, req.ip, false);
+    return adminLoginPage(req, res, { stage: 'code', email, note: V.esc(result.error) });
+  }
+
+  // The code proves the inbox, but the account still has to be an admin -
+  // otherwise a code issued for one purpose could be spent on another.
+  if (result.user.role !== 'admin') {
+    audit(result.user.id, 'admin_login_refused', `user:${result.user.id}`, { at: 'code' }, req.ip);
+    return back(res, '/login', 'That is not a staff account.', 'info');
+  }
+
+  auth.recordAttempt(who, req.ip, true);
+  const session = auth.startSession(result.user.id);
+  res.setHeader('Set-Cookie',
+    `wrj_session=${session.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${session.maxAge}`);
+  auth.recordLogin(result.user.id, req.ip, req.get('user-agent'));
+  audit(result.user.id, 'admin_login', `user:${result.user.id}`, { secondStep: true }, req.ip);
+  back(res, '/admin', 'Signed in.', 'ok');
 });
 
 // ------------------------------------------------------- confirming an email

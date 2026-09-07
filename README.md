@@ -52,6 +52,15 @@ The boot banner tells you what is on:
 
 Two ways in, and one person can use either on the same account.
 
+**Admins use their own door.** `/admin/login`, not the public page - an admin
+who signs in there is redirected to it. Once email is configured that door asks
+for a six-digit code sent to the admin address as well as the password, so a
+guessed or leaked password is not enough on the one account that can move
+money. While email is off it is the password alone, and the page says so rather
+than pretending otherwise: locking the owner out of their own site is not
+security.
+
+
 **Google** is the one to push. Anybody can invent a name and an email address,
 but a crowd of Google accounts costs real effort, and that effort is what stops
 one person farming a job with twenty identities.

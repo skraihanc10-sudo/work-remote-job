@@ -32,7 +32,11 @@ const SESSION_DAYS = 30;
 // How many failures before a pause, and how long the window is.
 const MAX_FAILURES = 8;
 const WINDOW_MINUTES = 15;
-const TOKEN_HOURS = { verify: 24, reset: 1 };
+/* How long each kind of one-time thing stays valid.
+
+   A sign-in code is the shortest: it is used within a minute of arriving, and
+   a long window is just a longer chance for somebody with the inbox open. */
+const TOKEN_HOURS = { verify: 24, reset: 1, admin_login: 0.25 };
 
 // -------------------------------------------------------------------- roles
 // Admins are named by email in ADMIN_EMAILS, so an admin is made by

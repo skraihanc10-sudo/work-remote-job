@@ -322,6 +322,24 @@ function resetPassword(user, { token, code }) {
   });
 }
 
+/* The code that finishes an admin sign-in.
+
+   It says where the attempt came from, because the useful thing about this
+   message is not the code - it is arriving when you were not signing in. */
+function adminCode(user, code, ip) {
+  return queue({
+    userId: user.id, kind: 'security',
+    subject: `${code} is your Remote Work BD admin sign-in code`,
+    heading: 'Someone is signing in to the admin area',
+    intro: `A code was asked for on the admin sign-in page${ip ? ` from ${ip}` : ''}.`,
+    code,
+    codeLabel: 'Admin sign-in code',
+    lines: ['It lasts fifteen minutes and works once.'],
+    foot: 'If this was not you, somebody has your password. Change it now, and nobody can '
+      + 'get in meanwhile without this inbox.',
+  });
+}
+
 function passwordChanged(user) {
   return queue({
     userId: user.id, kind: 'password_changed',
@@ -451,7 +469,7 @@ function broadcast({ subject, heading, body, adminId, audience = 'all' }) {
 module.exports = {
   config, enabled, flush, queue, render, siteUrl,
   unsubToken, checkUnsubToken,
-  welcome, verifyEmail, resetPassword, passwordChanged,
+  welcome, verifyEmail, resetPassword, passwordChanged, adminCode,
   taskSubmitted, taskApproved, taskRejected,
   depositCredited, withdrawalSettled, accountSuspended,
   broadcast,
