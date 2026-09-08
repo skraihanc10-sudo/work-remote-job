@@ -608,6 +608,102 @@ const MIGRATIONS = [
       ALTER TABLE email_tokens ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    id: 11,
+    name: 'the fee moves from every task to withdrawal only',
+    sql: `
+      /* A task now pays the worker the full listed rate - nothing held back at
+         approval. The one thing the platform still charges is a cut taken when
+         money actually leaves, so it lives on the withdrawal row: the amount
+         debited from the balance stays as it was, and these two say how that
+         amount was split. net_amount is what an admin actually sends; fee is
+         what stays in as revenue. Backfilled equal to the amount itself, since
+         every withdrawal already settled was charged nothing extra. */
+      ALTER TABLE withdrawals ADD COLUMN fee INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE withdrawals ADD COLUMN net_amount INTEGER;
+      UPDATE withdrawals SET net_amount = amount WHERE net_amount IS NULL;
+
+      /* Buyer job posts wait for an admin's word before workers can see them -
+         a post no longer goes live the moment it is funded. */
+      ALTER TABLE jobs ADD COLUMN approved_at TEXT;
+      UPDATE jobs SET approved_at = created_at WHERE status IN ('active','completed');
+
+      /* Up to three reference photos on a post (what the worker should match),
+         and up to three proof photos on a submission (one used to be the
+         limit). Kept as their own table rather than widening proof_file to a
+         list, because "how many" and "which are these" both need answering
+         without parsing a packed string. */
+      CREATE TABLE photos (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_type  TEXT NOT NULL CHECK (owner_type IN ('job','submission')),
+        owner_id    INTEGER NOT NULL,
+        file        TEXT NOT NULL,
+        position    INTEGER NOT NULL DEFAULT 0,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_photos_owner ON photos(owner_type, owner_id);
+
+      /* The existing single proof_file, carried across as photo 0, so old
+         submissions still show their one picture through the new gallery. */
+      INSERT INTO photos (owner_type, owner_id, file, position)
+        SELECT 'submission', id, proof_file, 0 FROM submissions WHERE proof_file IS NOT NULL;
+
+      /* The full category list, added alongside whatever is already there -
+         existing jobs keep the category they were posted under, and any
+         install with the old short list gets these on top rather than losing
+         them. UNIQUE(name) and UNIQUE(slug) make a duplicate a no-op. */
+      INSERT OR IGNORE INTO categories (name, slug) VALUES
+        ('Facebook', 'facebook'),
+        ('Twitter', 'twitter'),
+        ('Instagram', 'instagram'),
+        ('Sign Up', 'sign-up-new'),
+        ('Search / Click', 'search-click-new'),
+        ('Promotion', 'promotion'),
+        ('Telegram', 'telegram'),
+        ('Mobile Application', 'mobile-application'),
+        ('Share', 'share'),
+        ('Gmail Account', 'gmail-account'),
+        ('Comment', 'comment'),
+        ('Visitor', 'visitor'),
+        ('Computer Programs', 'computer-programs'),
+        ('Write an Article', 'write-an-article'),
+        ('Answers', 'answers'),
+        ('Views', 'views'),
+        ('Others', 'others'),
+        ('TikTok', 'tiktok'),
+        ('Refer Program', 'refer-program'),
+        ('Survey', 'survey-new'),
+        ('Facebook Invite', 'facebook-invite'),
+        ('Review', 'review'),
+        ('Ads Click', 'ads-click'),
+        ('YouTube', 'youtube-new'),
+        ('Assignment', 'assignment'),
+        ('Story', 'story'),
+        ('Typing', 'typing'),
+        ('Edit', 'edit'),
+        ('LinkedIn', 'linkedin'),
+        ('Reddit', 'reddit'),
+        ('Medium', 'medium'),
+        ('Discord', 'discord'),
+        ('Graphics Design', 'graphics-design'),
+        ('Blog', 'blog'),
+        ('Website', 'website'),
+        ('KYC Submit', 'kyc-submit'),
+        ('Reel / Short', 'reel-short'),
+        ('WhatsApp', 'whatsapp'),
+        ('App Pre-Tester', 'app-pre-tester'),
+        ('Airdrop Join', 'airdrop-join'),
+        ('Need Follower', 'need-follower'),
+        ('Quora', 'quora'),
+        ('Back Link', 'back-link'),
+        ('Fiverr', 'fiverr'),
+        ('Audiomack', 'audiomack'),
+        ('SoundCloud', 'soundcloud'),
+        ('Pinterest', 'pinterest'),
+        ('GitHub', 'github'),
+        ('Contest React', 'contest-react');
+    `,
+  },
 ];
 
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (
@@ -633,8 +729,9 @@ for (const m of MIGRATIONS) {
 const DEFAULTS = {
   currency: 'BDT',
   currency_symbol: '৳',
-  // Commission the platform keeps from each approved task, in basis points.
-  commission_bps: '1000',
+  /* The one fee the platform charges, taken from a withdrawal when it is
+     actually paid - never from a task. 1000 = 10%. */
+  withdrawal_fee_bps: '1000',
   min_withdrawal: '10000',
   // Anti-spam limits. Every one of these is enforced server-side.
   max_tasks_per_day: '25',

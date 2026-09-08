@@ -195,7 +195,15 @@ function platformUserId() {
   return row.id;
 }
 
-/* Approve one submission: escrow -> worker, minus commission.
+/* Approve one submission: escrow -> worker, the full listed rate.
+
+   No fee is taken here. The platform used to keep a cut of every approved
+   task, which meant a buyer's price and what a worker actually received were
+   two different numbers on the same job - confusing for both sides, and
+   nothing to show for it until the worker tried to withdraw. The one thing
+   charged now is a cut on the way out, in requestWithdrawal, so what a worker
+   sees credited to their balance is exactly what the job promised.
+
    Runs inside the caller's transaction. */
 function payForSubmission(sub, job) {
   const remaining = escrowRemaining(job.id);
@@ -203,32 +211,17 @@ function payForSubmission(sub, job) {
     throw new Error('This job has no funds left to pay for that. Contact support.');
   }
 
-  const bps = numSetting('commission_bps');
-  const commission = Math.round((job.rate * bps) / 10000);
-  const net = job.rate - commission;
-
   db.prepare('UPDATE escrow SET released = released + ? WHERE job_id = ?').run(job.rate, job.id);
+  entry(sub.worker_id, 'task_earning', job.rate, { type: 'submission', id: sub.id },
+        `Task approved - ${job.title}`);
 
-  // One line in the worker's history, saying what they earned and why it is
-  // less than the listed rate. A separate zero-value row for the fee would
-  // read like a transaction that never happened.
-  entry(sub.worker_id, 'task_earning', net, { type: 'submission', id: sub.id },
-        commission > 0
-          ? `Task approved - ${job.title} (${fmt(job.rate)} less ${fmt(commission)} fee)`
-          : `Task approved - ${job.title}`);
+  // Whoever brought this worker in gets a flat reward the first time they
+  // complete a task - funded from the platform's own balance, not a slice of
+  // what the worker earned. Required late to avoid a circular require.
+  const referrals = require('./referrals');
+  referrals.reward({ kind: 'task', sourceId: sub.id, referredId: sub.worker_id });
 
-  if (commission > 0) {
-    entry(platformUserId(), 'platform_fee', commission, { type: 'submission', id: sub.id },
-          `Fee from task #${sub.id}`);
-
-    // Whoever brought this worker in gets a share of our fee - not a slice of
-    // what the worker earned. Required late to avoid a circular require.
-    const referrals = require('./referrals');
-    referrals.reward({
-      kind: 'task', sourceId: sub.id, referredId: sub.worker_id, basis: commission,
-    });
-  }
-  return { gross: job.rate, commission, net };
+  return { gross: job.rate, commission: 0, net: job.rate };
 }
 
 /* Return whatever a job still holds to the merchant. Used when a job is
@@ -253,10 +246,20 @@ function refundRemaining(jobId, reason) {
    the account name and the number apart from each other, and a bank transfer
    needs four things that do not fit in a sentence.
 */
+function withdrawalFee(amount) {
+  return Math.round((amount * numSetting('withdrawal_fee_bps')) / 10000);
+}
+
 function requestWithdrawal(userId, amount, method, payout) {
   const min = numSetting('min_withdrawal');
   if (amount < min) throw new Error(`The smallest withdrawal is ${fmt(min)}`);
   if (balance(userId) < amount) throw new Error('That is more than your balance');
+
+  // The whole amount still leaves the balance now, same as always - the split
+  // between what is sent and what the platform keeps is only decided, and
+  // only realised, when an admin actually pays it.
+  const fee = withdrawalFee(amount);
+  const netAmount = amount - fee;
 
   const name = String(payout.accountName || '').trim();
   const number = String(payout.accountNumber || '').trim();
@@ -280,10 +283,10 @@ function requestWithdrawal(userId, amount, method, payout) {
     // Debit immediately so the same balance cannot be withdrawn twice while
     // the first request is still sitting in the admin queue.
     const info = db.prepare(`
-      INSERT INTO withdrawals (user_id, amount, method, detail,
+      INSERT INTO withdrawals (user_id, amount, method, detail, fee, net_amount,
                                account_name, account_number, bank_name, branch)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(userId, amount, method, detail, name, number, bank || null, branch || null);
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(userId, amount, method, detail, fee, netAmount, name, number, bank || null, branch || null);
     const id = Number(info.lastInsertRowid);
     entry(userId, 'withdrawal_hold', -amount, { type: 'withdrawal', id }, 'Withdrawal requested');
 
@@ -345,6 +348,13 @@ function settleWithdrawal(id, approve, note) {
     if (approve) {
       db.prepare("UPDATE withdrawals SET status = 'paid', note = ?, reviewed_at = datetime('now') WHERE id = ?")
         .run(note || null, id);
+
+      // The fee becomes real revenue only now, at the point the money is
+      // actually sent - a cancelled or rejected request never pays one.
+      if (w.fee > 0) {
+        entry(platformUserId(), 'withdrawal_fee', w.fee, { type: 'withdrawal', id },
+              `Fee from withdrawal #${id}`);
+      }
     } else {
       db.prepare("UPDATE withdrawals SET status = 'rejected', note = ?, reviewed_at = datetime('now') WHERE id = ?")
         .run(note || null, id);
@@ -364,5 +374,5 @@ function settleWithdrawal(id, approve, note) {
 module.exports = {
   parseAmount, fmt, balance, entry, history,
   adjustBalance, creditDeposit, creditGatewayDeposit, failDeposit, fundJob, escrowOf, escrowRemaining, payForSubmission, refundRemaining, platformUserId,
-  requestWithdrawal, cancelWithdrawal, settleWithdrawal,
+  requestWithdrawal, cancelWithdrawal, settleWithdrawal, withdrawalFee,
 };

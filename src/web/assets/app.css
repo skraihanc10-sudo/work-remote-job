@@ -338,6 +338,8 @@ tr.flagged { background: var(--amber-bg); }
 .timer.over { background: var(--red-bg); border-color: var(--red); color: var(--red); }
 .timer b { font-variant-numeric: tabular-nums; }
 
+.proof-gallery { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.proof-gallery .proof-img { margin-top: 0; max-width: 220px; max-height: 220px; object-fit: cover; }
 .proof-img { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; margin-top: 12px; display: block; }
 .review-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; margin-top: 16px; }
 .review-actions form { display: flex; gap: 8px; align-items: center; }

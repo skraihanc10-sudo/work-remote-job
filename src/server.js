@@ -241,7 +241,9 @@ const upload = multer({
       cb(null, crypto.randomBytes(16).toString('hex') + ext);
     },
   }),
-  limits: { fileSize: 4 * 1024 * 1024, files: 1 },
+  // Up to three: a post's reference photos and a submission's proof photos
+  // both cap there. One image was the old ceiling; kept as the per-file size.
+  limits: { fileSize: 4 * 1024 * 1024, files: 3 },
   fileFilter: (req, file, cb) => {
     const ok = ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype);
     cb(ok ? null : new Error('Proof must be a JPG, PNG or WebP image'), ok);
@@ -375,14 +377,30 @@ app.get('/favicon.ico', (req, res) => {
   res.redirect(301, fs.existsSync(real) ? '/assets/mark.png' : '/favicon.svg');
 });
 
-app.get('/proof/:name', need(), (req, res) => {
+/* Two kinds of picture share this folder and this route: a submission's
+   proof, which shows an account or a personal detail and is private to the
+   two people involved and an admin; and a job's reference photos, which are
+   part of the listing itself and as public as the job page they sit on - no
+   `need()` here for that reason, and the route decides per file. */
+app.get('/proof/:name', (req, res) => {
   const name = path.basename(String(req.params.name));
   const file = path.join(DATA_DIR, 'proofs', name);
   if (!file.startsWith(path.join(DATA_DIR, 'proofs')) || !fs.existsSync(file)) return res.status(404).end();
 
-  // Proof screenshots often show accounts and personal details. Only the two
-  // people involved and an admin ever see one.
-  const sub = db.prepare('SELECT worker_id, merchant_id FROM submissions WHERE proof_file = ?').get(name);
+  const photo = db.prepare('SELECT owner_type, owner_id FROM photos WHERE file = ?').get(name);
+
+  if (photo && photo.owner_type === 'job') {
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    return res.sendFile(file);
+  }
+
+  if (!req.user) return res.status(401).end();
+
+  const subId = photo && photo.owner_type === 'submission' ? photo.owner_id : null;
+  const sub = subId
+    ? db.prepare('SELECT worker_id, merchant_id FROM submissions WHERE id = ?').get(subId)
+    // The one proof_file column, for a submission from before the photos table.
+    : db.prepare('SELECT worker_id, merchant_id FROM submissions WHERE proof_file = ?').get(name);
   const allowed = req.user.role === 'admin' ||
     (sub && (sub.worker_id === req.user.id || sub.merchant_id === req.user.id));
   if (!allowed) return res.status(403).end();
@@ -607,7 +625,7 @@ app.get('/', (req, res) => {
     <p>Share your link. When somebody you invited finishes their first task, you get
        <b>${V.money(numSetting('referral_flat'))}</b> &mdash; and <b>${refDep}% of what they
        deposit</b> if they come as a buyer.
-       It comes out of our commission, never out of their earnings.
+       It comes out of the platform's own balance, never out of their earnings.
        <span class="bn">আপনার লিংকে কেউ জয়েন করে প্রথম কাজ শেষ করলেই
        ${V.money(numSetting('referral_flat'))} টাকা পাবেন।</span></p>
     <a href="/login?want=worker" class="btn btn-lg btn-white">Start now</a>
@@ -747,6 +765,7 @@ app.get('/jobs/:id', (req, res) => {
       <div class="prose">${V.esc(job.instructions).replace(/\n/g, '<br>')}</div>
       <h2>Proof to send</h2>
       <div class="prose">${V.esc(job.proof_required).replace(/\n/g, '<br>')}</div>
+      ${photoGallery(photosFor('job', job.id), 'Reference photo from the buyer')}
     </div>
   </div>
 
@@ -779,11 +798,11 @@ app.get('/how-it-works', (req, res) => send(req, res, {
       <li>Find a job and read what proof it needs before you start.</li>
       <li>Press Start. That opens your slot and begins timing the task.</li>
       <li>Do the work, then send your proof before the time window closes.</li>
-      <li>The buyer reviews it. Approved work is credited to your balance immediately.</li>
-      <li>Withdraw once you are over the minimum.</li>
+      <li>The buyer reviews it. Approved work is credited to your balance immediately,
+          at the full rate the job listed - nothing is held back here.</li>
+      <li>Withdraw once you are over the minimum. A ${(numSetting('withdrawal_fee_bps') / 100).toFixed(0)}%
+          fee applies then, and only then - shown before you confirm.</li>
     </ol>
-    <p class="muted">You keep ${(100 - numSetting('commission_bps') / 100).toFixed(0)}% of the listed rate;
-       the rest is the platform fee, shown on every task before you start.</p>
   </div>
   <div class="card pad">
     <h2>If you are hiring</h2>
@@ -928,10 +947,11 @@ app.get('/about', (req, res) => {
    work they have not seen.</p>
 
 <h2>How we make money</h2>
-<p>A percentage of each approved task, taken from the amount the buyer already agreed
-   to pay. It is currently <b>${(numSetting('commission_bps') / 100).toFixed(0)}%</b>, shown on
-   every task before a worker starts it, and it is the only thing we charge. No fee to
-   join, no fee to post a job, no monthly cost.</p>
+<p>A worker is credited the full rate a job lists the moment their work is approved -
+   we take nothing from that. The one thing we charge is a
+   <b>${(numSetting('withdrawal_fee_bps') / 100).toFixed(0)}%</b> fee when money is
+   actually withdrawn, shown before the request is confirmed. No fee to join, no fee to
+   post a job, no fee on an approved task, no monthly cost.</p>
 
 <h2>Where things stand</h2>
 <div class="stat-row">
@@ -1067,8 +1087,10 @@ app.get('/terms', (req, res) => {
 
 <h2>Money</h2>
 <ul>
-  <li>We take <b>${(numSetting('commission_bps') / 100).toFixed(0)}%</b> of each approved
-      task. It is shown before a worker starts.</li>
+  <li>Approved work pays the worker the full listed rate. Nothing is taken at that
+      point, from either side.</li>
+  <li>We take <b>${(numSetting('withdrawal_fee_bps') / 100).toFixed(0)}%</b> when a
+      worker withdraws. It is shown before the request is confirmed.</li>
   <li>The smallest withdrawal is <b>${V.money(numSetting('min_withdrawal'))}</b>.</li>
   <li>Withdrawals are checked and paid by a person, so allow a little time.</li>
   <li>Balances are not a deposit account. We are not a bank and money here is not insured.</li>
@@ -2209,9 +2231,9 @@ app.get('/task/:id', need('worker'), (req, res) => {
       ${V.field({ label: 'What you did', name: 'proof_text', type: 'textarea', rows: 5, required: true,
         hint: 'Include the details the buyer asked for - a username, an order number, whatever proves it. / বায়ার যা চেয়েছে তা লিখুন - ইউজারনেম, অর্ডার নম্বর, যা প্রমাণ করে।' })}
       <div class="field">
-        <label for="f-proof">Screenshot <em>optional</em> ${V.bn('স্ক্রিনশট')}</label>
-        <input id="f-proof" type="file" name="proof" accept="image/jpeg,image/png,image/webp">
-        <span class="hint">JPG, PNG or WebP, up to 4MB.</span>
+        <label for="f-proof">Screenshots <em>optional, up to 3</em> ${V.bn('স্ক্রিনশট')}</label>
+        <input id="f-proof" type="file" name="proof" accept="image/jpeg,image/png,image/webp" multiple>
+        <span class="hint">JPG, PNG or WebP, up to 4MB each.</span>
       </div>
       <div class="alert alert-info">
         <b>Copying somebody else's proof, or sending the same thing twice, is caught.</b>
@@ -2250,7 +2272,7 @@ app.get('/task/:id', need('worker'), (req, res) => {
     <div class="card pad">
       <h2>Your submission</h2>
       <div class="prose">${V.esc(s.proof_text || '').replace(/\n/g, '<br>')}</div>
-      ${s.proof_file ? `<img class="proof-img" src="/proof/${V.esc(s.proof_file)}" alt="Proof screenshot">` : ''}
+      ${photoGallery(photosFor('submission', s.id), 'Proof screenshot')}
       <dl class="kv">
         <dt>Time spent</dt><dd>${V.mmss(s.seconds_spent)}</dd>
         <dt>State</dt><dd>${V.statusPill(s.status)}</dd>
@@ -2292,7 +2314,7 @@ ${form}${review}`,
   });
 });
 
-app.post('/task/:id/submit', need('worker'), active, upload.single('proof'), checkCsrf, (req, res) => {
+app.post('/task/:id/submit', need('worker'), active, upload.array('proof', 3), checkCsrf, (req, res) => {
   const s = db.prepare("SELECT * FROM submissions WHERE id = ? AND worker_id = ? AND status = 'started'")
     .get(Number(req.params.id), req.user.id);
   if (!s) return fail(res, 'That task is not open for submission.');
@@ -2306,7 +2328,10 @@ app.post('/task/:id/submit', need('worker'), active, upload.single('proof'), che
   const started = new Date(s.started_at.replace(' ', 'T') + 'Z').getTime();
   const seconds = Math.max(0, Math.round((Date.now() - started) / 1000));
 
-  const draft = { ...s, proof_text: text, proof_file: req.file ? req.file.filename : null, seconds_spent: seconds };
+  // The first photo, if there is one, still lives on proof_file too - the
+  // spam checker and anything reading that one column keep working unchanged.
+  const files = req.files || [];
+  const draft = { ...s, proof_text: text, proof_file: files[0] ? files[0].filename : null, seconds_spent: seconds };
   const verdict = spam.inspectSubmission(draft, job);
 
   db.prepare(`
@@ -2314,8 +2339,12 @@ app.post('/task/:id/submit', need('worker'), active, upload.single('proof'), che
            seconds_spent = ?, submitted_at = datetime('now'), flagged = ?, flag_reason = ?
     WHERE id = ?
   `).run(text, draft.proof_file, seconds, verdict.flagged, verdict.reason, s.id);
+  files.forEach((f, i) => {
+    db.prepare('INSERT INTO photos (owner_type, owner_id, file, position) VALUES (?, ?, ?, ?)')
+      .run('submission', s.id, f.filename, i);
+  });
 
-  audit(req.user.id, 'submit', `submission:${s.id}`, { seconds, flagged: verdict.flagged }, req.ip);
+  audit(req.user.id, 'submit', `submission:${s.id}`, { seconds, photos: files.length, flagged: verdict.flagged }, req.ip);
   mail.taskSubmitted(s, job, req.user);
   back(res, '/task/' + s.id, 'Sent for review.', 'ok');
 });
@@ -2391,6 +2420,26 @@ ${waiting ? `<div class="alert alert-warn">
   });
 });
 
+/* All the photos on one job or submission, oldest first. */
+function photosFor(ownerType, ownerId) {
+  return db.prepare('SELECT file FROM photos WHERE owner_type = ? AND owner_id = ? ORDER BY position, id')
+    .all(ownerType, ownerId).map(r => r.file);
+}
+
+function photoGallery(files, alt) {
+  if (!files.length) return '';
+  return `<div class="proof-gallery">${files.map(f =>
+    `<a href="/proof/${V.esc(f)}" target="_blank" rel="noopener">
+       <img class="proof-img" src="/proof/${V.esc(f)}" alt="${V.esc(alt)}"></a>`).join('')}</div>`;
+}
+
+function jobStatusPill(j) {
+  if (j.status === 'paused' && !j.approved_at) {
+    return '<span class="pill s-pending">waiting for approval</span>';
+  }
+  return V.statusPill(j.status);
+}
+
 function merchantJobTable(rows) {
   if (!rows.length) return '<div class="pad muted">You have not posted a job yet.</div>';
   return `<div class="table-wrap"><table>
@@ -2402,7 +2451,7 @@ function merchantJobTable(rows) {
         <td class="num">${V.money(j.rate)}</td>
         <td class="num">${j.slots_filled} / ${j.slots}</td>
         <td class="num">${V.money(e)}</td>
-        <td>${V.statusPill(j.status)}</td>
+        <td>${jobStatusPill(j)}</td>
         <td class="right">
           <a class="link" href="/merchant/jobs/new?clone=${j.id}">Clone</a>
           <a class="link" href="/merchant/jobs/${j.id}">Manage</a>
@@ -2446,8 +2495,10 @@ app.get('/merchant/jobs/new', need('merchant'), active, (req, res) => {
     body: `
 <div class="narrow-wide">
   <h1>Post a job</h1>
-  <p class="muted">The full cost is held from your balance as soon as it goes live,
-     and whatever is not paid out comes back to you.</p>
+  <p class="muted">The full cost is held from your balance the moment you publish. An
+     administrator checks new jobs before workers can see them - usually within a few
+     hours - and whatever is not paid out comes back to you.<br>
+     ${V.bn('পাবলিশ করার সাথে সাথেই টাকা কেটে রাখা হবে। ওয়ার্কাররা দেখার আগে একজন অ্যাডমিন চেক করে দেখবেন - সাধারণত কয়েক ঘণ্টার মধ্যে।')}</p>
   <p class="muted">Available now: <b>${V.money(money.balance(req.user.id))}</b> ·
      <a href="/wallet">Add funds</a></p>
 
@@ -2464,7 +2515,7 @@ app.get('/merchant/jobs/new', need('merchant'), active, (req, res) => {
     <p class="fine">Or fill in the form below yourself.</p>
   </div>`}
 
-  <form method="post" action="/merchant/jobs/new" class="card pad">
+  <form method="post" action="/merchant/jobs/new" enctype="multipart/form-data" class="card pad">
     ${csrfField(req)}
     ${req.query.clone ? '<div class="alert alert-info">Copied from one of your jobs. Change what you need and publish.</div>' : ''}
     ${V.field({ label: 'Title', name: 'title', required: true, value: pre.title, placeholder: 'Sign up and confirm your email' })}
@@ -2499,14 +2550,26 @@ app.get('/merchant/jobs/new', need('merchant'), active, (req, res) => {
       </div>
     </div>
     ${V.field({ label: 'Country', name: 'country', value: pre.country, placeholder: 'Leave blank for anywhere' })}
+
+    <div class="field">
+      <label>Reference photos <span class="fine">(optional, up to 3)</span></label>
+      <p class="hint">A screenshot of the page, video or account you want matched. Workers
+         see these next to your instructions.
+         <span class="bn">যে পেজ, ভিডিও বা অ্যাকাউন্ট মেলাতে হবে তার স্ক্রিনশট। ওয়ার্কাররা
+         আপনার instructions-এর পাশেই এগুলো দেখবে।</span></p>
+      <input type="file" name="photos" accept="image/jpeg,image/png,image/webp" multiple>
+    </div>
+
     <div id="cost-preview" class="cost">Cost: <b>--</b></div>
-    <button class="btn btn-lg" type="submit">Fund and publish</button>
+    <button class="btn btn-lg" type="submit">Fund and send for approval</button>
   </form>
 </div>`,
   });
 });
 
-app.post('/merchant/jobs/new', need('merchant'), active, (req, res) => {
+/* Multipart, so the global CSRF check - which skips multipart bodies because
+   the fields are not parsed yet when it runs - has to run again after multer. */
+app.post('/merchant/jobs/new', need('merchant'), active, upload.array('photos', 3), checkCsrf, (req, res) => {
   const b = req.body;
   const rate = money.parseAmount(b.rate);
   const slots = Math.floor(Number(b.slots));
@@ -2525,10 +2588,12 @@ app.post('/merchant/jobs/new', need('merchant'), active, (req, res) => {
 
   db.exec('BEGIN IMMEDIATE');
   try {
+    // 'paused' with no approved_at: not yet visible to anybody but the buyer
+    // who posted it, until an admin approves it below.
     const info = db.prepare(`
       INSERT INTO jobs (merchant_id, category_id, title, instructions, proof_required,
-                        rate, slots, min_seconds, hold_minutes, country, ttr_days, min_level)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        rate, slots, min_seconds, hold_minutes, country, ttr_days, min_level, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paused')
     `).run(
       req.user.id, b.category_id ? Number(b.category_id) : null, title,
       String(b.instructions).trim(), String(b.proof_required).trim(),
@@ -2541,9 +2606,15 @@ app.post('/merchant/jobs/new', need('merchant'), active, (req, res) => {
     );
     const jobId = Number(info.lastInsertRowid);
     money.fundJob(jobId, req.user.id, total);
+    (req.files || []).forEach((f, i) => {
+      db.prepare('INSERT INTO photos (owner_type, owner_id, file, position) VALUES (?, ?, ?, ?)')
+        .run('job', jobId, f.filename, i);
+    });
     db.exec('COMMIT');
     audit(req.user.id, 'job_posted', `job:${jobId}`, { total, slots, rate }, req.ip);
-    back(res, '/merchant/jobs/' + jobId, `Live. ${money.fmt(total)} is held in escrow.`, 'ok');
+    back(res, '/merchant/jobs/' + jobId,
+      `Sent for approval. ${money.fmt(total)} is held in escrow, and it will go live once an admin checks it.`,
+      'ok');
   } catch (err) {
     db.exec('ROLLBACK');
     fail(res, err.message);
@@ -2566,15 +2637,21 @@ app.get('/merchant/jobs/:id', need('merchant'), (req, res) => {
     body: `
 <a class="back" href="/merchant/jobs">&larr; My jobs</a>
 <div class="page-head"><div><h1>${V.esc(job.title)}</h1>
-  <p class="muted">${V.statusPill(job.status)} · ${job.slots_filled} of ${job.slots} slots taken</p></div>
+  <p class="muted">${jobStatusPill(job)} · ${job.slots_filled} of ${job.slots} slots taken</p></div>
   <div class="btn-row">
     ${job.status === 'active' ? `<form method="post" action="/merchant/jobs/${job.id}/pause">${csrfField(req)}<button class="btn btn-ghost" type="submit">Pause</button></form>` : ''}
-    ${job.status === 'paused' ? `<form method="post" action="/merchant/jobs/${job.id}/resume">${csrfField(req)}<button class="btn btn-ghost" type="submit">Resume</button></form>` : ''}
+    ${job.status === 'paused' && job.approved_at ? `<form method="post" action="/merchant/jobs/${job.id}/resume">${csrfField(req)}<button class="btn btn-ghost" type="submit">Resume</button></form>` : ''}
     ${job.status !== 'cancelled' && job.status !== 'completed' ? `
       <form method="post" action="/merchant/jobs/${job.id}/cancel"
             onsubmit="return confirm('Cancel this job? Unspent funds return to your balance. Work already submitted still needs a decision.')">
         ${csrfField(req)}<button class="btn btn-danger" type="submit">Cancel</button></form>` : ''}
   </div></div>
+
+${job.status === 'paused' && !job.approved_at ? `<div class="alert alert-info">
+  <b>Waiting for an admin to approve this job.</b> Workers cannot see it yet. This is
+  usually done within a few hours.<br>
+  ${V.bn('অ্যাডমিন এখনো চেক করেননি। ওয়ার্কাররা এখনো দেখতে পারছে না - সাধারণত কয়েক ঘণ্টার মধ্যে হয়ে যায়।')}
+</div>` : ''}
 
 <div class="stat-row">
   <div class="stat"><b>${V.money(e.held)}</b><span>funded</span></div>
@@ -2700,7 +2777,7 @@ ${subs.length ? subs.map(s => `
     </dl>
     <h3>Proof</h3>
     <div class="prose">${V.esc(s.proof_text || '').replace(/\n/g, '<br>')}</div>
-    ${s.proof_file ? `<img class="proof-img" src="/proof/${V.esc(s.proof_file)}" alt="Proof screenshot">` : ''}
+    ${photoGallery(photosFor('submission', s.id), 'Proof screenshot')}
 
     <div class="review-actions">
       <form method="post" action="/submissions/${s.id}/approve">
@@ -2962,8 +3039,9 @@ app.get('/wallet', need(), (req, res) => {
       <h2>Withdraw <span class="bn">টাকা তুলুন</span></h2>
       <p class="muted">Smallest withdrawal is ${V.money(numSetting('min_withdrawal'))}.
          The amount leaves your balance straight away and is paid out after an admin
-         checks it.<br>
-         ${V.bn(`সর্বনিম্ন ${V.money(numSetting('min_withdrawal'))} টাকা। রিকোয়েস্ট করলেই ব্যালেন্স থেকে কেটে যাবে, অ্যাডমিন দেখে পাঠিয়ে দেবে।`)}</p>
+         checks it. A ${(numSetting('withdrawal_fee_bps') / 100).toFixed(0)}% fee applies
+         when it is paid - this is the only fee anywhere on the site.<br>
+         ${V.bn(`সর্বনিম্ন ${V.money(numSetting('min_withdrawal'))} টাকা। রিকোয়েস্ট করলেই ব্যালেন্স থেকে কেটে যাবে, অ্যাডমিন দেখে পাঠিয়ে দেবে। পেমেন্টের সময় ${(numSetting('withdrawal_fee_bps') / 100).toFixed(0)}% ফি কাটা হবে - পুরো সাইটে এটাই একমাত্র ফি।`)}</p>
 
       ${pending.length ? `
       <div class="alert alert-info">
@@ -2980,11 +3058,13 @@ app.get('/wallet', need(), (req, res) => {
         payment comes back days later with nobody sure why.
       </div>
 
-      <form method="post" action="/wallet/withdraw" class="withdraw" id="withdraw-form">
+      <form method="post" action="/wallet/withdraw" class="withdraw" id="withdraw-form"
+            data-fee-bps="${numSetting('withdrawal_fee_bps')}" data-currency="${V.esc(getSetting('currency_symbol'))}">
         ${csrfField(req)}
 
         ${V.field({ label: 'Amount', name: 'amount', required: true,
           hint: `In ${V.esc(getSetting('currency'))}. You have ${V.money(money.balance(u.id))}. / আপনার ব্যালেন্সে আছে ${V.money(money.balance(u.id))}।` })}
+        <p class="amt-out" id="wd-out" aria-live="polite">Enter an amount to see what you will actually receive.</p>
 
         <div class="field">
           <label for="w-method">Send it to ${V.bn('কোথায় পাঠাব')}</label>
@@ -3022,10 +3102,11 @@ app.get('/wallet', need(), (req, res) => {
     <div class="card">
       <div class="card-head"><h2>Waiting to be paid ${V.bn('পেমেন্টের অপেক্ষায়')}</h2></div>
       <div class="table-wrap"><table>
-        <thead><tr><th>Asked</th><th>Amount</th><th>To</th><th></th></tr></thead>
+        <thead><tr><th>Asked</th><th>Amount</th><th>You'll receive</th><th>To</th><th></th></tr></thead>
         <tbody>${pending.map(w => `<tr>
           <td class="dim">${V.ago(w.created_at)}</td>
           <td class="num">${V.money(w.amount)}</td>
+          <td class="num">${V.money(w.net_amount)}</td>
           <td>${V.esc(w.method)}<div class="dim">${V.esc(w.detail || '')}</div></td>
           <td class="right">
             <form method="post" action="/wallet/withdraw/${w.id}/cancel"
@@ -3071,9 +3152,12 @@ ${deposits.length ? `<div class="card"><div class="card-head"><h2>Deposits</h2><
       ? `<a class="link" href="${V.esc(d.pay_url)}">Pay</a>` : ''}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
 
 ${withdrawals.length ? `<div class="card"><div class="card-head"><h2>Withdrawals</h2></div>
-  <div class="table-wrap"><table><thead><tr><th>When</th><th>Method</th><th class="right">Amount</th><th>State</th><th>Note</th></tr></thead>
+  <div class="table-wrap"><table><thead><tr><th>When</th><th>Method</th><th class="right">Amount</th>
+    <th class="right">Received</th><th>State</th><th>Note</th></tr></thead>
   <tbody>${withdrawals.map(w => `<tr><td class="dim">${V.ago(w.created_at)}</td><td>${V.esc(w.method)}</td>
-    <td class="num right">${V.money(w.amount)}</td><td>${V.statusPill(w.status)}</td>
+    <td class="num right">${V.money(w.amount)}</td>
+    <td class="num right">${w.status === 'paid' ? V.money(w.net_amount) : '-'}</td>
+    <td>${V.statusPill(w.status)}</td>
     <td class="dim">${V.esc(w.note || '')}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`,
   });
 });
@@ -3203,6 +3287,7 @@ app.get('/admin', need('admin'), (req, res) => {
 
   // Everything that is actually waiting for a person, in one list.
   const todo = [
+    { n: q.jobsPending, label: 'jobs waiting for approval', href: '/admin/jobs?status=pending' },
     { n: q.reports, label: 'reports to judge', href: '/admin/reports' },
     { n: m.pendingWithdrawals, label: 'withdrawals to pay', href: '/admin/money' },
     { n: m.pendingDeposits, label: 'deposits to check', href: '/admin/money' },
@@ -3250,7 +3335,7 @@ ${todo.length ? `
 <div class="kpi-row">
   ${kpi(V.money(m.balances), 'held in user balances', { note: 'what people could withdraw today' })}
   ${kpi(V.money(m.escrow), 'in escrow', { note: 'funded jobs not yet paid out', href: '/admin/buyers' })}
-  ${kpi(V.money(m.fees), 'our commission', { tone: 'ok', note: 'earned across all approved work' })}
+  ${kpi(V.money(m.fees), 'our fee', { tone: 'ok', note: 'taken from withdrawals as they are paid' })}
   ${kpi(V.money(m.withdrawn), 'paid out', { note: 'withdrawals settled' })}
   ${kpi(V.money(m.pendingWithdrawalValue), 'withdrawals waiting',
     { tone: m.pendingWithdrawals ? 'warn' : '', href: '/admin/money',
@@ -3447,15 +3532,19 @@ ${flagged.length ? `<div class="alert alert-warn">
 });
 
 app.get('/admin/jobs', need('admin'), (req, res) => {
-  const status = ['active', 'completed', 'cancelled'].includes(req.query.status) ? req.query.status : null;
+  const status = ['pending', 'active', 'completed', 'cancelled'].includes(req.query.status) ? req.query.status : null;
+  const where = status === 'pending' ? "j.status = 'paused' AND j.approved_at IS NULL"
+    : status ? 'j.status = ?' : null;
   const rows = db.prepare(`
     SELECT j.*, u.name AS buyer,
       (SELECT COUNT(*) FROM submissions WHERE job_id = j.id AND status = 'submitted') AS waiting,
       (SELECT COUNT(*) FROM submissions WHERE job_id = j.id AND status = 'approved') AS approved
     FROM jobs j JOIN users u ON u.id = j.merchant_id
-    ${status ? 'WHERE j.status = ?' : ''}
+    ${where ? `WHERE ${where}` : ''}
     ORDER BY j.id DESC LIMIT 200
-  `).all(...(status ? [status] : []));
+  `).all(...(status && status !== 'pending' ? [status] : []));
+  const pendingCount = db.prepare(
+    "SELECT COUNT(*) AS n FROM jobs WHERE status = 'paused' AND approved_at IS NULL").get().n;
 
   send(req, res, {
     title: 'Jobs', active: 'jobs', wide: true,
@@ -3464,6 +3553,7 @@ app.get('/admin/jobs', need('admin'), (req, res) => {
   <p class="muted">Every job posted, and what has happened to it.</p></div>
   <div class="range">
     <a class="${!status ? 'on' : ''}" href="/admin/jobs">All</a>
+    <a class="${status === 'pending' ? 'on' : ''}" href="/admin/jobs?status=pending">Pending${pendingCount ? ` (${pendingCount})` : ''}</a>
     <a class="${status === 'active' ? 'on' : ''}" href="/admin/jobs?status=active">Live</a>
     <a class="${status === 'completed' ? 'on' : ''}" href="/admin/jobs?status=completed">Done</a>
     <a class="${status === 'cancelled' ? 'on' : ''}" href="/admin/jobs?status=cancelled">Cancelled</a>
@@ -3472,18 +3562,49 @@ app.get('/admin/jobs', need('admin'), (req, res) => {
 
 <div class="card">${rows.length ? `<div class="table-wrap"><table>
   <thead><tr><th>Job</th><th>Buyer</th><th class="right">Pays</th><th class="right">Filled</th>
-    <th class="right">Waiting</th><th class="right">In escrow</th><th>State</th></tr></thead>
-  <tbody>${rows.map(j => `<tr>
+    <th class="right">Waiting</th><th class="right">In escrow</th><th>State</th><th></th></tr></thead>
+  <tbody>${rows.map(j => {
+    const pending = j.status === 'paused' && !j.approved_at;
+    return `<tr>
     <td><a class="link" href="/jobs/${j.id}">${V.esc(j.title)}</a></td>
     <td><a class="link" href="/admin/users/${j.merchant_id}">${V.esc(j.buyer)}</a></td>
     <td class="num right">${V.money(j.rate)}</td>
     <td class="num right">${j.slots_filled} / ${j.slots}</td>
     <td class="num right ${j.waiting ? 'warn-t' : ''}">${j.waiting}</td>
     <td class="num right">${V.money(money.escrowRemaining(j.id))}</td>
-    <td>${V.statusPill(j.status)}</td>
-  </tr>`).join('')}</tbody></table></div>`
+    <td>${jobStatusPill(j)}</td>
+    <td class="right">${pending ? `
+      <form method="post" action="/admin/jobs/${j.id}/approve" class="inline">${csrfField(req)}
+        <button class="btn btn-sm" type="submit">Approve</button></form>
+      <form method="post" action="/admin/jobs/${j.id}/reject" class="inline">${csrfField(req)}
+        <button class="btn btn-ghost btn-sm" type="submit">Reject</button></form>` : ''}</td>
+  </tr>`;
+  }).join('')}</tbody></table></div>`
     : '<div class="pad muted">No jobs yet.</div>'}</div>`,
   });
+});
+
+app.post('/admin/jobs/:id/approve', need('admin'), (req, res) => {
+  const id = Number(req.params.id);
+  const job = db.prepare("SELECT * FROM jobs WHERE id = ? AND status = 'paused' AND approved_at IS NULL").get(id);
+  if (!job) return back(res, '/admin/jobs', 'That job is not waiting for approval.', 'fail');
+  db.prepare("UPDATE jobs SET status = 'active', approved_at = datetime('now') WHERE id = ?").run(id);
+  audit(req.user.id, 'job_approved', `job:${id}`, null, req.ip);
+  back(res, '/admin/jobs?status=pending', 'Approved. It is live now.', 'ok');
+});
+
+app.post('/admin/jobs/:id/reject', need('admin'), (req, res) => {
+  const id = Number(req.params.id);
+  const job = db.prepare("SELECT * FROM jobs WHERE id = ? AND status = 'paused' AND approved_at IS NULL").get(id);
+  if (!job) return back(res, '/admin/jobs', 'That job is not waiting for approval.', 'fail');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare("UPDATE jobs SET status = 'cancelled' WHERE id = ?").run(id);
+    money.refundRemaining(id, 'Not approved for posting');
+    db.exec('COMMIT');
+  } catch (err) { db.exec('ROLLBACK'); return back(res, '/admin/jobs', err.message, 'fail'); }
+  audit(req.user.id, 'job_rejected', `job:${id}`, null, req.ip);
+  back(res, '/admin/jobs?status=pending', 'Rejected. The buyer\'s balance was refunded in full.', 'info');
 });
 
 app.get('/admin/reports', need('admin'), (req, res) => {
@@ -3562,7 +3683,7 @@ app.get('/admin/submission/:id', need('admin'), (req, res) => {
   </dl>
   <h3>Proof required</h3><div class="prose muted">${V.esc(s.proof_required).replace(/\n/g, '<br>')}</div>
   <h3>Proof sent</h3><div class="prose">${V.esc(s.proof_text || '').replace(/\n/g, '<br>')}</div>
-  ${s.proof_file ? `<img class="proof-img" src="/proof/${V.esc(s.proof_file)}" alt="Proof">` : ''}
+  ${photoGallery(photosFor('submission', s.id), 'Proof')}
 </div>`,
   });
 });
@@ -3600,9 +3721,13 @@ ${wds.length ? wds.map(w => `
       <b>${V.esc(w.name)}</b> <span class="dim">${V.esc(w.email)}</span>
       <div class="dim">asked ${V.ago(w.created_at)}</div>
     </div>
-    <div class="wd-amt">${V.money(w.amount)}</div>
+    <div class="wd-amt">${V.money(w.net_amount)}
+      <span class="dim" style="font-size:.7em;display:block">requested ${V.money(w.amount)}${w.fee ? `, fee ${V.money(w.fee)}` : ''}</span></div>
     <div>${V.statusPill(w.status)}</div>
   </div>
+
+  ${w.fee ? `<div class="alert alert-warn"><b>Send ${V.money(w.net_amount)}, not ${V.money(w.amount)}.</b>
+    ${V.money(w.fee)} is the platform's fee and stays in - only the rest goes out.</div>` : ''}
 
   <div class="wd-grid">
     <div><span>Send by</span><b>${V.esc(w.method === 'bank' ? 'Bank transfer' : w.method)}
@@ -3963,7 +4088,7 @@ ${asMerchant.jobs ? `<div class="stat-row">
         <td class="num right">${j.slots_filled} / ${j.slots}</td>
         <td class="num right ${waiting ? 'warn-t' : ''}">${waiting}</td>
         <td class="num right">${V.money(money.escrowRemaining(j.id))}</td>
-        <td>${V.statusPill(j.status)}</td></tr>`;
+        <td>${jobStatusPill(j)}</td></tr>`;
     }).join('')}</tbody></table></div>` : ''}
 </div>`;
   })()}
@@ -4040,7 +4165,7 @@ ${jobs.length ? `<div class="card">
       <td class="num">${V.money(j.rate)}</td>
       <td class="num">${j.slots_filled} / ${j.slots}</td>
       <td class="num">${V.money(money.escrowRemaining(j.id))}</td>
-      <td>${V.statusPill(j.status)}</td>
+      <td>${jobStatusPill(j)}</td>
     </tr>`).join('')}</tbody></table></div>
 </div>` : ''}
 
@@ -4133,8 +4258,8 @@ app.post('/admin/users/:id/balance', need('admin'), (req, res) => {
 const EDITABLE = [
   { key: 'usd_rate', label: 'Rate for 1 USD', money: true,
     hint: 'Used for crypto deposits and USD adjustments. Set by hand on purpose - a wrong automatic rate mispays everyone quietly.' },
-  { key: 'commission_bps', label: 'Platform fee', bps: true,
-    hint: 'Taken from each approved task. 1000 = 10%.' },
+  { key: 'withdrawal_fee_bps', label: 'Withdrawal fee', bps: true,
+    hint: 'Taken only when a worker withdraws, never from an approved task. 1000 = 10%.' },
   { key: 'min_withdrawal', label: 'Smallest withdrawal', money: true },
   { key: 'min_deposit', label: 'Smallest deposit', money: true,
     hint: 'A floor in local currency. The one people actually see is the dollar figure below.' },
@@ -5486,8 +5611,11 @@ app.get('/account', need(), (req, res) => {
   </div>
 
   ${u.role === 'admin' ? '' : `
-  <div class="card pad">
-    <h2>Switch to ${other === 'merchant' ? 'hiring' : 'working'}</h2>
+  <div class="card pad" id="switch">
+    <h2>Switch to ${other === 'merchant' ? 'buyer mode' : 'worker mode'}</h2>
+    <p class="fine">${other === 'merchant'
+      ? V.bn('বায়ার মোডে কাজ পোস্ট করবেন, ওয়ার্কারদের দিয়ে করাবেন।')
+      : V.bn('ওয়ার্কার মোডে নিজে কাজ করে আয় করবেন।')}</p>
     ${other === 'merchant'
       ? '<p class="muted">Post tasks, fund them up front, and review the proof that comes back. Your balance and history stay exactly as they are.</p>'
       : '<p class="muted">Do tasks yourself and get paid when a buyer approves them. Your balance and history stay exactly as they are.</p>'}

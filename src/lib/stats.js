@@ -75,14 +75,20 @@ function money() {
      back if the request is refused or cancelled. What is left is the total
      that has either been paid or is sitting in the queue waiting to be, and
      either way it is no longer in anybody's balance. */
-  const outflow = -((kinds.withdrawal_hold || 0) + (kinds.withdrawal_return || 0));
+  /* withdrawal_fee is a credit back to the platform account for the slice of
+     a paid-out withdrawal that never actually left - subtracting it here is
+     what keeps that slice out of "money that is gone". */
+  const outflow = -((kinds.withdrawal_hold || 0) + (kinds.withdrawal_return || 0)
+    + (kinds.withdrawal_fee || 0));
 
   return {
     deposited: kinds.deposit || 0,
     adminAdded: kinds.admin_credit || 0,
     adminTaken: -(kinds.admin_debit || 0),
     earned: kinds.task_earning || 0,
-    fees: kinds.platform_fee || 0,
+    // platform_fee is the old per-task cut, kept for history already on the
+    // books; withdrawal_fee is the only one a payout can add to from here on.
+    fees: (kinds.platform_fee || 0) + (kinds.withdrawal_fee || 0),
     referralPaid: kinds.referral || 0,
     // What has genuinely been sent, not what has merely been asked for.
     withdrawn: num("SELECT COALESCE(SUM(amount), 0) AS n FROM withdrawals WHERE status = 'paid'"),
@@ -142,6 +148,7 @@ function work() {
 function queue() {
   return {
     reports: num("SELECT COUNT(*) AS n FROM reports WHERE status = 'open'"),
+    jobsPending: num("SELECT COUNT(*) AS n FROM jobs WHERE status = 'paused' AND approved_at IS NULL"),
     roleRequests: num("SELECT COUNT(*) AS n FROM role_requests WHERE status = 'pending'"),
     tickets: num("SELECT COUNT(*) AS n FROM tickets WHERE status = 'open'"),
     mailFailed: num("SELECT COUNT(*) AS n FROM mail_outbox WHERE status = 'failed'"),

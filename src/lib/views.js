@@ -167,6 +167,7 @@ function navItems(user) {
       { href: '/merchant/jobs/new', label: 'Post a job', key: 'newjob', cta: true, tab: true, icon: 'plus' },
       { href: '/referrals', label: 'Refer a friend', short: 'Refer', key: 'referrals' },
       { href: '/support', label: 'Support', key: 'support' },
+      { href: '/account#switch', label: 'Switch to worker mode', key: 'switch', drawerOnly: true },
       { href: '/account', label: 'Account', key: 'account' },
     ];
   }
@@ -179,6 +180,7 @@ function navItems(user) {
     { href: '/referrals', label: 'Refer', key: 'referrals', tab: true, icon: 'gift' },
     { href: '/leaderboard', label: 'Prize', key: 'prizes' },
     { href: '/support', label: 'Support', key: 'support' },
+    { href: '/account#switch', label: 'Switch to buyer mode', key: 'switch', drawerOnly: true },
     { href: '/account', label: 'Account', key: 'account' },
   ];
 }
@@ -220,6 +222,7 @@ function deskNav(user, active) {
      competing for a row that is short of space. The drawer still lists it,
      because on a phone the name is not shown. */
   const links = main
+    .filter(i => !i.drawerOnly)
     .filter(i => !(user && i.key === 'account'))
     // `short` where a label has one: the header bar is capped at the page
     // width, so two long labels were enough to push the last link out of view.

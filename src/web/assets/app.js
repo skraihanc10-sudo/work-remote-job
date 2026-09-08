@@ -252,4 +252,27 @@
   }
   method.addEventListener('change', sync);
   sync();
+
+  // --------------------------------------------- what you will actually get
+  // A 10% cut sounds abstract until it is a number under the field you are
+  // typing into.
+  var amt = document.getElementById('f-amount');
+  var out = document.getElementById('wd-out');
+  var bps = parseFloat(form.dataset.feeBps) || 0;
+  var sym = form.dataset.currency || '';
+  if (amt && out) {
+    var updateOut = function () {
+      var v = parseFloat(String(amt.value).replace(/,/g, ''));
+      if (!isFinite(v) || v <= 0) {
+        out.textContent = 'Enter an amount to see what you will actually receive.';
+        return;
+      }
+      var fee = (v * bps) / 10000;
+      var net = v - fee;
+      out.innerHTML = 'You will receive <b>' + sym + net.toFixed(2) + '</b> after a '
+        + sym + fee.toFixed(2) + ' fee.';
+    };
+    amt.addEventListener('input', updateOut);
+    updateOut();
+  }
 })();
