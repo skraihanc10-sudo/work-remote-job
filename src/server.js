@@ -491,12 +491,7 @@ app.get('/', (req, res) => {
 
      Without JavaScript the first one stays put, which is a working banner
      rather than a broken carousel. -->
-<div class="promo-strip" id="promo-strip" data-every="15000">
-  <img class="promo-slide on" src="/assets/banner-1.png?v=${V.assetVersion('banner-1.png')}"
-    alt="Smartphone দিয়ে সহজে Task Complete করুন" width="1100" height="166">
-  <img class="promo-slide" src="/assets/banner-2.png?v=${V.assetVersion('banner-2.png')}"
-    alt="ঘরে বসে প্রতিদিন ৳৫০০ - ৳১,০০০ ইনকাম করুন" width="1100" height="150" aria-hidden="true">
-</div>
+${promoStrip()}
 
 <section class="hero2">
   <div class="hero2-copy">
@@ -2396,6 +2391,48 @@ ${waiting ? `<div class="alert alert-warn">
 </div>`,
   });
 });
+
+/* The banner strip above the heading.
+
+   Every banner-N.png in the assets folder, in numeric order, discovered at
+   request time rather than listed here. Adding one is dropping a file in and
+   naming it - no code to touch, which is the point: whoever is drawing these
+   is not going to be editing JavaScript.
+
+   The caption for each comes from banner-N.txt beside it if one exists, so a
+   screen reader and a search engine get the words that are drawn into the
+   picture. Without that file the image is decorative as far as they are
+   concerned, which is honest - better than a made-up caption.
+
+   Read fresh each time. These change while somebody is designing them, and a
+   cached list would mean a new banner not appearing until a restart. */
+function promoBanners() {
+  const dir = path.join(__dirname, 'web', 'assets');
+  let files;
+  try { files = fs.readdirSync(dir); } catch { return []; }
+
+  return files
+    .map(f => (f.match(/^banner-(\d+)\.png$/) || [])[1] ? { f, n: Number(f.match(/^banner-(\d+)\.png$/)[1]) } : null)
+    .filter(Boolean)
+    .sort((a, b) => a.n - b.n)
+    .map(({ f, n }) => {
+      let alt = '';
+      try { alt = fs.readFileSync(path.join(dir, `banner-${n}.txt`), 'utf8').trim(); } catch { /* none */ }
+      return { file: f, alt };
+    });
+}
+
+function promoStrip() {
+  const banners = promoBanners();
+  if (!banners.length) return '';
+
+  return `<div class="promo-strip" id="promo-strip" data-every="15000">
+  ${banners.map((b, i) => `<img class="promo-slide${i === 0 ? ' on' : ''}"
+    src="/assets/${V.esc(b.file)}?v=${V.assetVersion(b.file)}"
+    alt="${V.esc(b.alt)}"${i === 0 ? '' : ' aria-hidden="true"'}
+    ${b.alt ? '' : 'role="presentation"'}>`).join('\n  ')}
+</div>`;
+}
 
 /* All the photos on one job or submission, oldest first. */
 function photosFor(ownerType, ownerId) {
