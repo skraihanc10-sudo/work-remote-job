@@ -2128,14 +2128,15 @@ app.get('/worker', need('worker'), (req, res) => {
   <div>
     <span class="pill lvl">${V.esc(st.name)}</span>
     <b>${st.note}</b>
-    <div class="dim">${st.rate === null
-      ? 'Your level rises as buyers approve your work. Nothing decided yet.'
-      : `${st.rate}% of your ${st.decided} decided tasks were approved.`}</div>
+    <div class="dim">Earned ${V.money(st.earned)}${st.rate === null ? ''
+      : ` · ${st.rate}% approved`}</div>
   </div>
   ${st.next ? `<div class="dim right-note">
-    ${Math.max(0, st.next.tasks - st.approved)} more approved tasks at ${st.next.minRate}%
-    or better reaches <b>${st.next.name}</b>, which opens jobs closed to lower levels.
-  </div>` : '<div class="dim right-note">Gold is the top level. Every job is open to you.</div>'}
+    ${V.money(st.next.remaining)} more of approved work reaches <b>${V.esc(st.next.name)}</b>.
+    ${st.heldBack ? `<br>Your approval rate is under ${st.next.minRate}%, which is holding the
+      level back.` : ''}
+    <span class="bn">আর ${V.money(st.next.remaining)} টাকার কাজ করলেই ${V.esc(st.next.name)}।</span>
+  </div>` : '<div class="dim right-note">Max Gold is the top level. Every job is open to you.</div>'}
 </div>
 
 <div class="stat-row">
@@ -3037,25 +3038,20 @@ app.get('/wallet', need(), (req, res) => {
   const withdraw = u.role !== 'worker' ? '' : `
     <div class="card pad">
       <h2>Withdraw <span class="bn">টাকা তুলুন</span></h2>
-      <p class="muted">Smallest withdrawal is ${V.money(numSetting('min_withdrawal'))}.
-         The amount leaves your balance straight away and is paid out after an admin
-         checks it. A ${(numSetting('withdrawal_fee_bps') / 100).toFixed(0)}% fee applies
-         when it is paid - this is the only fee anywhere on the site.<br>
-         ${V.bn(`সর্বনিম্ন ${V.money(numSetting('min_withdrawal'))} টাকা। রিকোয়েস্ট করলেই ব্যালেন্স থেকে কেটে যাবে, অ্যাডমিন দেখে পাঠিয়ে দেবে। পেমেন্টের সময় ${(numSetting('withdrawal_fee_bps') / 100).toFixed(0)}% ফি কাটা হবে - পুরো সাইটে এটাই একমাত্র ফি।`)}</p>
+      <p class="muted">Minimum ${V.money(numSetting('min_withdrawal'))} ·
+         ${(numSetting('withdrawal_fee_bps') / 100).toFixed(0)}% fee · paid after an admin checks it.
+         <span class="bn">সর্বনিম্ন ${V.money(numSetting('min_withdrawal'))} · ${(numSetting('withdrawal_fee_bps') / 100).toFixed(0)}% ফি · অ্যাডমিন দেখে পাঠাবে।</span></p>
 
       ${pending.length ? `
       <div class="alert alert-info">
-        <b>${pending.length} withdrawal${pending.length === 1 ? '' : 's'} waiting.</b>
-        You can cancel any of them below until an admin pays it.
-        ${V.bn('অ্যাডমিন পাঠানোর আগ পর্যন্ত আপনি নিজেই বাতিল করতে পারবেন।')}
+        <b>${pending.length} waiting.</b> Cancel any of them until an admin pays it.
+        ${V.bn('অ্যাডমিন পাঠানোর আগে বাতিল করতে পারবেন।')}
       </div>` : ''}
 
       <div class="alert alert-warn">
-        <b>Use a personal account, not an agent or merchant one.</b>
-        <span class="bn">এজেন্ট বা মার্চেন্ট নম্বরে টাকা পাঠানো যায় না &mdash; অবশ্যই
-          পার্সোনাল bKash / Nagad / Rocket নম্বর দিন।</span>
-        A send to an agent or merchant wallet is refused by bKash and Nagad, and the
-        payment comes back days later with nobody sure why.
+        <b>Personal account only &mdash; not agent or merchant.</b>
+        <span class="bn">অবশ্যই পার্সোনাল bKash / Nagad / Rocket নম্বর দিন। এজেন্ট বা
+          মার্চেন্ট নম্বরে পেমেন্ট ফেরত চলে আসে।</span>
       </div>
 
       <form method="post" action="/wallet/withdraw" class="withdraw" id="withdraw-form"
@@ -3063,7 +3059,7 @@ app.get('/wallet', need(), (req, res) => {
         ${csrfField(req)}
 
         ${V.field({ label: 'Amount', name: 'amount', required: true,
-          hint: `In ${V.esc(getSetting('currency'))}. You have ${V.money(money.balance(u.id))}. / আপনার ব্যালেন্সে আছে ${V.money(money.balance(u.id))}।` })}
+          hint: `You have ${V.money(money.balance(u.id))}` })}
         <p class="amt-out" id="wd-out" aria-live="polite">Enter an amount to see what you will actually receive.</p>
 
         <div class="field">
@@ -3077,11 +3073,11 @@ app.get('/wallet', need(), (req, res) => {
 
         ${V.field({ label: 'Account holder name', name: 'account_name', required: true,
           value: saved.name,
-          hint: 'Exactly as it is registered on the account. / অ্যাকাউন্টে যে নাম আছে হুবহু সেটাই দিন - নাম না মিললে পেমেন্ট ফেরত আসে।' })}
+          hint: 'Exactly as registered - a mismatch bounces the payment. / নাম না মিললে পেমেন্ট ফেরত আসে।' })}
 
         ${V.field({ label: 'Number or account', name: 'account_number', required: true,
           value: saved.number, placeholder: '01XXXXXXXXX',
-          hint: 'Your personal wallet number, or the account number for a bank. / আপনার পার্সোনাল নম্বর, অথবা ব্যাংক হলে অ্যাকাউন্ট নম্বর।' })}
+          hint: 'Wallet number, or account number for a bank. / আপনার পার্সোনাল নম্বর।' })}
 
         <div id="bank-only" class="bank-fields" hidden>
           <div class="row-2">
@@ -3093,8 +3089,8 @@ app.get('/wallet', need(), (req, res) => {
         </div>
 
         <button class="btn" type="submit">Request withdrawal</button>
-        <p class="fine">Nothing is sent until an admin checks it. You can cancel while it waits.<br>
-           ${V.bn('অ্যাডমিন যাচাই করার আগে কিছুই পাঠানো হয় না। অপেক্ষার সময় আপনি বাতিল করতে পারবেন।')}</p>
+        <p class="fine">You can cancel while it waits.
+           ${V.bn('অপেক্ষার সময় বাতিল করতে পারবেন।')}</p>
       </form>
     </div>` ;
 

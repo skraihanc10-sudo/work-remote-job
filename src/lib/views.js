@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const LOGO = path.join(__dirname, '..', 'web', 'assets', 'logo.png');
 const LOGO_LIGHT = path.join(__dirname, '..', 'web', 'assets', 'logo-light.png');
+const LOGO_DARK = path.join(__dirname, '..', 'web', 'assets', 'logo-dark.png');
 const MARK = path.join(__dirname, '..', 'web', 'assets', 'mark.png');
 
 /* Stylesheet and script are cached for an hour, so without a version in the
@@ -52,15 +53,37 @@ const JS_V = assetVersion('app.js');
 /* The whole lockup - mark and name together - when the real file is there.
 
    It already contains the words, so the separate text beside it has to go, or
-   the name appears twice. `light` swaps in the white version, which exists
-   because the lockup's grey half is invisible on the dark footer.
+   the name appears twice.
+
+   `light` asks for the version that works on a dark ground. That used to be a
+   flat white silhouette, which meant the footer showed the shape of the logo
+   with none of its blue - the brand reduced to a stencil. logo-dark.png is the
+   supplied file with every blue pixel untouched and only the grey word lifted,
+   so it reads as the same logo wherever it sits.
+
+   Both are emitted at once for the header: the browser picks by the reader's
+   theme, so a person switching to dark mode gets the right one immediately
+   rather than on the next page load, and neither is a recolour done in CSS -
+   they are two files, each exactly as intended.
 */
 function brandLockup(light) {
-  const file = light ? LOGO_LIGHT : LOGO;
-  if (!fs.existsSync(file)) return null;
-  const name = light ? 'logo-light.png' : 'logo.png';
-  return `<img class="brand-logo" src="/assets/${name}?v=${assetVersion(name)}"
-    alt="${SITE}" width="600" height="162">`;
+  if (!fs.existsSync(LOGO)) return null;
+  const onDark = fs.existsSync(LOGO_DARK) ? 'logo-dark.png'
+    : (fs.existsSync(LOGO_LIGHT) ? 'logo-light.png' : 'logo.png');
+
+  if (light) {
+    return `<img class="brand-logo" src="/assets/${onDark}?v=${assetVersion(onDark)}"
+      alt="${SITE}" width="600" height="162">`;
+  }
+
+  /* Two sources, one image. The picture element is the only way to swap the
+     file itself by theme; a CSS filter would have to alter the blue to fix
+     the grey, and the blue is not ours to change. */
+  return `<picture class="brand-pic">
+    <source srcset="/assets/${onDark}?v=${assetVersion(onDark)}" media="(prefers-color-scheme: dark)">
+    <img class="brand-logo" src="/assets/logo.png?v=${assetVersion('logo.png')}"
+      alt="${SITE}" width="600" height="162">
+  </picture>`;
 }
 
 function logoMark() {

@@ -152,6 +152,7 @@ main.wrap { padding-top: 26px; padding-bottom: 70px; }
 .brand-mark svg { display: block; }
 
 /* The real lockup, sized by height so its own proportions decide the width. */
+.brand-pic { display: block; flex: none; }
 .brand-logo { display: block; height: 30px; width: auto; flex: none; }
 .foot-mark .brand-logo { height: 32px; }
 @media (max-width: 900px) { .brand-logo { height: 26px; } }
