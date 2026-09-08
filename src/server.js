@@ -482,18 +482,20 @@ app.get('/', (req, res) => {
   send(req, res, {
     title: 'Best microjob site to make money online',
     body: `
-<!-- Above the heading, in the gap the header leaves. First thing on the page
-     for a reason: it answers "what is this, and what do I get" before the
-     reader has decided whether to keep scrolling.
+<!-- The strip under the header: two banners, one at a time.
 
-     Two identical copies in the track, which travels exactly half its own
-     width, so the second copy arrives where the first began and the loop has
-     no seam. The copy is aria-hidden, so the sentence is announced once. -->
-<div class="ticker">
-  <div class="ticker-track">
-    <span class="ticker-item">Smartphone দিয়ে ঘরে বসেই শুরু করুন Online কাজ! সহজ Task সম্পন্ন করে প্রতিদিন <b>500TK &ndash; 1000TK +</b> আয়ের সুযোগ &mdash; কাজ করুন আপনার সুবিধামতো সময়ে।&nbsp;&nbsp;&middot;&nbsp;&nbsp;</span>
-    <span class="ticker-item" aria-hidden="true">Smartphone দিয়ে ঘরে বসেই শুরু করুন Online কাজ! সহজ Task সম্পন্ন করে প্রতিদিন <b>500TK &ndash; 1000TK +</b> আয়ের সুযোগ &mdash; কাজ করুন আপনার সুবিধামতো সময়ে।&nbsp;&nbsp;&middot;&nbsp;&nbsp;</span>
-  </div>
+     Both are in the markup and the second is simply hidden, so the swap costs
+     nothing at the moment it happens - the browser has already decoded both.
+     Loading the second one on first change would show an empty gap on a slow
+     connection, exactly when the page is trying to make its case.
+
+     Without JavaScript the first one stays put, which is a working banner
+     rather than a broken carousel. -->
+<div class="promo-strip" id="promo-strip" data-every="15000">
+  <img class="promo-slide on" src="/assets/banner-1.png?v=${V.assetVersion('banner-1.png')}"
+    alt="Smartphone দিয়ে সহজে Task Complete করুন" width="1100" height="166">
+  <img class="promo-slide" src="/assets/banner-2.png?v=${V.assetVersion('banner-2.png')}"
+    alt="ঘরে বসে প্রতিদিন ৳৫০০ - ৳১,০০০ ইনকাম করুন" width="1100" height="150" aria-hidden="true">
 </div>
 
 <section class="hero2">

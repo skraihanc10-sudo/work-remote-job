@@ -57,6 +57,51 @@
   }
 })();
 
+/* The banner strip: swap which one is showing, on a timer.
+
+   Both images are already in the page and decoded, so a change is a class
+   move rather than a fetch - nothing blinks and nothing arrives late.
+
+   It stops while the tab is in the background. A timer that keeps firing on a
+   hidden tab burns battery to animate something nobody is looking at, and on
+   returning you would land mid-cycle anyway.
+*/
+(function () {
+  'use strict';
+  var strip = document.getElementById('promo-strip');
+  if (!strip) return;
+
+  var slides = strip.querySelectorAll('.promo-slide');
+  if (slides.length < 2) return;
+
+  var every = Number(strip.dataset.every) || 15000;
+  var at = 0;
+  var timer = null;
+
+  function show(next) {
+    slides[at].classList.remove('on');
+    slides[at].setAttribute('aria-hidden', 'true');
+    at = next;
+    slides[at].classList.add('on');
+    slides[at].removeAttribute('aria-hidden');
+  }
+
+  function start() {
+    if (timer) return;
+    timer = setInterval(function () { show((at + 1) % slides.length); }, every);
+  }
+  function stop() {
+    if (!timer) return;
+    clearInterval(timer);
+    timer = null;
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) stop(); else start();
+  });
+  start();
+})();
+
 /* Support conversation: pull in new messages so a reply appears without a
    refresh. Polling, not a socket - a support queue this size does not need one,
    and the page still works if this never runs. */

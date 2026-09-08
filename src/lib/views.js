@@ -554,4 +554,7 @@ const para = (en, bnText) =>
 module.exports = {
   esc, br, layout, card, field, statusPill, money: money_, ago, mmss, SITE,
   bn, both, para,
+  // Pages outside this file put images on the page too, and they need the
+  // same cache-busting stamp or a replaced file never reaches anybody.
+  assetVersion,
 };

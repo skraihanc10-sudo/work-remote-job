@@ -681,7 +681,7 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
 /* ==================================================================== v2 home
    Full-width bands alternating white / pale blue / deep blue, the way a landing
    page reads when you scroll it quickly. */
-.bleed, .counters, .band, .services, .ticker { margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); }
+.bleed, .counters, .band, .services, .promo-strip { margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); }
 
 /* One column now that the artwork is gone. The copy is the hero. */
 .hero2 { padding: 34px 0 30px; }
@@ -691,38 +691,34 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
 }
 .hero2-sub { font-size: 16px; color: var(--ink-2); margin-bottom: 2px; font-weight: 600; }
 .hero2-line { font-size: 15px; color: var(--muted); margin-bottom: 26px; }
-/* ---------------------------------------------------------------- ticker
+/* ------------------------------------------------------- the promo strip
 
-   One sentence sliding past, edge to edge. The track holds two identical
-   copies and travels exactly -50% of its own width, so the moment the first
-   copy leaves the animation restarts with the second in precisely the place
-   the first began - continuous, with no visible seam.
+   Two banners occupying one slot, swapped on a timer. Both are laid on top of
+   each other in the same grid cell rather than absolutely positioned, so the
+   strip is as tall as the taller banner and the page never jumps when they
+   change.
 
-   It stops for anyone who has asked for less motion, and on a narrow phone it
-   runs faster, because the same distance across a smaller screen otherwise
-   feels like it has stalled. */
-.ticker {
-  overflow: hidden; white-space: nowrap;
-  background: var(--brand-bg); border-bottom: 1px solid var(--line);
-  padding: 10px 0;
-  /* Pulled up against the header: the page's own top padding would otherwise
-     leave a strip of paper between the two. */
+   The artwork is drawn on white, so the strip is white in both themes: a white
+   graphic floating on a dark page looks like a mistake, while a white band
+   with the graphic in it looks like a band. */
+.promo-strip {
+  display: grid; background: #fff;
+  border-bottom: 1px solid var(--line);
+  padding: 8px clamp(10px, 3vw, 26px);
   margin-top: -26px;
 }
-.ticker-track {
-  display: inline-flex; will-change: transform;
-  animation: ticker 26s linear infinite;
+.promo-slide {
+  grid-area: 1 / 1;
+  display: block; width: 100%; height: auto;
+  max-width: 1100px; margin: 0 auto;
+  opacity: 0; visibility: hidden;
+  transition: opacity .18s linear;
 }
-.ticker-item {
-  font-size: 15px; font-weight: 600; color: var(--brand-dk);
-  padding-right: 8px;
-}
-.ticker-item b { color: var(--green); font-weight: 800; }
-@keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-.ticker:hover .ticker-track { animation-play-state: paused; }
+.promo-slide.on { opacity: 1; visibility: visible; }
+/* No animation for anyone who asked for less motion: the swap is instant, and
+   the timer in app.js is what keeps them changing. */
 @media (prefers-reduced-motion: reduce) {
-  .ticker-track { animation: none; }
-  .ticker { text-align: center; white-space: normal; }
+  .promo-slide { transition: none; }
 }
 
 /* counters */
@@ -825,8 +821,7 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
 .foot-links a:hover { color: #fff; }
 
 @media (max-width: 900px) {
-  .ticker-track { animation-duration: 16s; }
-  .ticker-item { font-size: 14px; }
+  .promo-strip { padding: 6px 10px; }
   .counters-grid { grid-template-columns: repeat(2, 1fr); }
   .act-row { grid-template-columns: auto 1fr; row-gap: 8px; }
   .act-bar { grid-column: 1 / -1; }
