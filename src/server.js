@@ -482,6 +482,20 @@ app.get('/', (req, res) => {
   send(req, res, {
     title: 'Best microjob site to make money online',
     body: `
+<!-- Above the heading, in the gap the header leaves. First thing on the page
+     for a reason: it answers "what is this, and what do I get" before the
+     reader has decided whether to keep scrolling.
+
+     Two identical copies in the track, which travels exactly half its own
+     width, so the second copy arrives where the first began and the loop has
+     no seam. The copy is aria-hidden, so the sentence is announced once. -->
+<div class="ticker">
+  <div class="ticker-track">
+    <span class="ticker-item">Smartphone দিয়ে ঘরে বসেই শুরু করুন Online কাজ! সহজ Task সম্পন্ন করে প্রতিদিন <b>500TK &ndash; 1000TK +</b> আয়ের সুযোগ &mdash; কাজ করুন আপনার সুবিধামতো সময়ে।&nbsp;&nbsp;&middot;&nbsp;&nbsp;</span>
+    <span class="ticker-item" aria-hidden="true">Smartphone দিয়ে ঘরে বসেই শুরু করুন Online কাজ! সহজ Task সম্পন্ন করে প্রতিদিন <b>500TK &ndash; 1000TK +</b> আয়ের সুযোগ &mdash; কাজ করুন আপনার সুবিধামতো সময়ে।&nbsp;&nbsp;&middot;&nbsp;&nbsp;</span>
+  </div>
+</div>
+
 <section class="hero2">
   <div class="hero2-copy">
     <h1>Microjobs and freelancing<br>to make money online</h1>
@@ -495,24 +509,6 @@ app.get('/', (req, res) => {
         <path d="M5 12h13"/><path d="M13 6l6 6-6 6"/></svg></a>
   </div>
 </section>
-
-<!-- One line, moving. It says the thing a visitor actually wants to know -
-     how much, and what it takes - and it moves because a static line in this
-     spot reads as decoration and gets skipped.
-
-     Duplicated once, and the track shifts by exactly half its width, so the
-     end of the second copy meets the start of the first with no gap or jump.
-     aria-hidden on the copy, so a screen reader hears the sentence once. -->
-<div class="ticker">
-  <div class="ticker-track">
-    <span class="ticker-item">ঘরে বসে প্রতিদিন <b>৳৫০০&ndash;৳১,০০০</b> ইনকাম করুন
-      &nbsp;&middot;&nbsp; Smartphone দিয়ে সহজ Online Task করুন, নিজের সময় অনুযায়ী কাজ করুন।
-      &nbsp;&middot;&nbsp;</span>
-    <span class="ticker-item" aria-hidden="true">ঘরে বসে প্রতিদিন <b>৳৫০০&ndash;৳১,০০০</b> ইনকাম করুন
-      &nbsp;&middot;&nbsp; Smartphone দিয়ে সহজ Online Task করুন, নিজের সময় অনুযায়ী কাজ করুন।
-      &nbsp;&middot;&nbsp;</span>
-  </div>
-</div>
 
 <section class="counters">
   <div class="wrap counters-grid">

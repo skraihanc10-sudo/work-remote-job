@@ -681,7 +681,7 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
 /* ==================================================================== v2 home
    Full-width bands alternating white / pale blue / deep blue, the way a landing
    page reads when you scroll it quickly. */
-.bleed, .counters, .band, .services { margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); }
+.bleed, .counters, .band, .services, .ticker { margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); }
 
 /* One column now that the artwork is gone. The copy is the hero. */
 .hero2 { padding: 34px 0 30px; }
@@ -703,8 +703,11 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
    feels like it has stalled. */
 .ticker {
   overflow: hidden; white-space: nowrap;
-  background: var(--brand-bg); border-block: 1px solid var(--line);
-  padding: 11px 0; margin-bottom: 8px;
+  background: var(--brand-bg); border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+  /* Pulled up against the header: the page's own top padding would otherwise
+     leave a strip of paper between the two. */
+  margin-top: -26px;
 }
 .ticker-track {
   display: inline-flex; will-change: transform;
