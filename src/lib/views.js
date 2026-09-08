@@ -7,6 +7,7 @@
 
 const { getSetting } = require('./db');
 const money = require('./money');
+const banners = require('./banners');
 
 const esc = s => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -142,6 +143,7 @@ const ADMIN_TOOLS = [
   { href: '/admin/connections', label: 'Connections', key: 'connections' },
   { href: '/admin/gateway', label: 'Gateway', key: 'gateway' },
   { href: '/admin/prizes', label: 'Prize', key: 'prizes' },
+  { href: '/admin/banners', label: 'Banners', key: 'banners' },
   { href: '/admin/mail', label: 'Email', key: 'mail' },
   { href: '/admin/settings', label: 'Settings', key: 'settings' },
 ];
@@ -257,6 +259,51 @@ function deskNav(user, active) {
     + (user ? '<a href="/logout" class="btn btn-ghost btn-sm">Sign out</a>' : '');
 
   return `<div class="nav-links">${links}</div><div class="nav-actions">${actions}</div>`;
+}
+
+/* The banner strip.
+
+   Swipeable, and it advances on its own. Both banners - all of them - are laid
+   out side by side in a scroller rather than stacked with one visible: that is
+   what makes a swipe work at all, because a swipe is the browser scrolling a
+   scrollable box, and nothing here has to reimplement a drag.
+
+   Only the first is loaded eagerly. On a phone on mobile data the rest arrive
+   as they are scrolled to, so a strip of five banners costs one banner to open
+   the page.
+
+   Empty markup when there are no banners: the strip disappears rather than
+   leaving a blank band, which is what an admin who deleted them all asked for.
+*/
+function promoStrip() {
+  let items;
+  try { items = banners.live(); } catch { return ''; }
+  if (!items.length) return '';
+
+  const slides = items.map((b, i) => {
+    const img = `<img class="promo-slide" src="/banner/${esc(b.file)}"
+      alt="${esc(b.caption || '')}"${b.caption ? '' : ' role="presentation"'}
+      ${b.width ? `width="${b.width}"` : ''} ${b.height ? `height="${b.height}"` : ''}
+      ${i === 0 ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async">`;
+    return `<div class="promo-cell">${b.link
+      ? `<a href="${esc(b.link)}">${img}</a>` : img}</div>`;
+  }).join('');
+
+  // The dots are buttons because they do something when pressed; a row of divs
+  // would be invisible to anybody navigating by keyboard.
+  const dots = items.length < 2 ? '' : `<div class="promo-dots" role="tablist" aria-label="Offers">
+    ${items.map((b, i) => `<button type="button" class="promo-dot${i === 0 ? ' on' : ''}"
+      data-to="${i}" role="tab" aria-selected="${i === 0 ? 'true' : 'false'}"
+      aria-label="Offer ${i + 1} of ${items.length}"></button>`).join('')}
+  </div>`;
+
+  return `<div class="promo-strip" id="promo-strip" data-every="15000">
+  <div class="promo-track" id="promo-track">${slides}</div>
+  ${items.length < 2 ? '' : `
+  <button type="button" class="promo-arrow prev" id="promo-prev" aria-label="Previous offer">&#8249;</button>
+  <button type="button" class="promo-arrow next" id="promo-next" aria-label="Next offer">&#8250;</button>`}
+  ${dots}
+</div>`;
 }
 
 function drawerItems(user) {
@@ -376,6 +423,7 @@ ${verifyTags()}
 </header>
 
 ${bare ? '' : drawer(user, active)}
+${bare ? '' : promoStrip()}
 ${bare ? '' : adminBar(user, active)}
 
 ${user && user.status === 'suspended' ? `

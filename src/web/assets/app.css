@@ -681,7 +681,7 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
 /* ==================================================================== v2 home
    Full-width bands alternating white / pale blue / deep blue, the way a landing
    page reads when you scroll it quickly. */
-.bleed, .counters, .band, .services, .promo-strip { margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); }
+.bleed, .counters, .band, .services { margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); }
 
 /* One column now that the artwork is gone. The copy is the hero. */
 .hero2 { padding: 34px 0 30px; }
@@ -693,33 +693,91 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
 .hero2-line { font-size: 15px; color: var(--muted); margin-bottom: 26px; }
 /* ------------------------------------------------------- the promo strip
 
-   Two banners occupying one slot, swapped on a timer. Both are laid on top of
-   each other in the same grid cell rather than absolutely positioned, so the
-   strip is as tall as the taller banner and the page never jumps when they
-   change.
+   Under the header on every page. Swipeable, and it moves on its own.
+
+   The banners sit side by side in one horizontal scroller with scroll-snap,
+   rather than stacked with one visible at a time. That is what makes a swipe
+   work: a swipe is the browser scrolling a scrollable box, so touch, a
+   trackpad, a mouse drag and the keyboard all work without a line of drag
+   handling. Advancing on the timer is the same scroll, asked for in code.
 
    The artwork is drawn on white, so the strip is white in both themes: a white
-   graphic floating on a dark page looks like a mistake, while a white band
-   with the graphic in it looks like a band. */
+   graphic floating on a dark page reads as a mistake; a white band with the
+   graphic in it reads as a band. */
 .promo-strip {
-  display: grid; background: #fff;
+  position: relative; background: #fff;
   border-bottom: 1px solid var(--line);
+}
+.promo-track {
+  display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  /* No scrollbar: it is a banner, not a document, and a bar under it on a
+     desktop trackpad looks like a rendering fault. */
+  scrollbar-width: none; -ms-overflow-style: none;
+}
+.promo-track::-webkit-scrollbar { display: none; }
+.promo-cell {
+  flex: 0 0 100%; scroll-snap-align: center;
+  display: flex; align-items: center; justify-content: center;
   padding: 8px clamp(10px, 3vw, 26px);
-  margin-top: -26px;
 }
 .promo-slide {
-  grid-area: 1 / 1;
   display: block; width: 100%; height: auto;
-  max-width: 1100px; margin: 0 auto;
-  opacity: 0; visibility: hidden;
-  transition: opacity .18s linear;
+  max-width: 1000px; margin: 0 auto;
 }
-.promo-slide.on { opacity: 1; visibility: visible; }
-/* No animation for anyone who asked for less motion: the swap is instant, and
-   the timer in app.js is what keeps them changing. */
-@media (prefers-reduced-motion: reduce) {
-  .promo-slide { transition: none; }
+
+/* Arrows: a convenience on a desktop, where there is nothing to swipe with.
+   Hidden on a touch screen, where the swipe is the control and an arrow is
+   just something to cover the artwork with. */
+.promo-arrow {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid rgba(0,0,0,.10); background: rgba(255,255,255,.94);
+  color: #333; font-size: 19px; line-height: 1; cursor: pointer;
+  display: grid; place-content: center; padding: 0;
+  box-shadow: 0 1px 4px rgba(0,0,0,.14);
 }
+.promo-arrow:hover { background: #fff; }
+.promo-arrow.prev { left: 6px; }
+.promo-arrow.next { right: 6px; }
+@media (hover: none) { .promo-arrow { display: none; } }
+
+.promo-dots {
+  position: absolute; left: 0; right: 0; bottom: 4px;
+  display: flex; justify-content: center; gap: 5px;
+}
+.promo-dot {
+  width: 6px; height: 6px; padding: 0; border-radius: 50%;
+  border: none; background: rgba(0,0,0,.22); cursor: pointer;
+  transition: background .15s, width .15s;
+}
+.promo-dot.on { background: var(--brand); width: 14px; border-radius: 3px; }
+.promo-dot:focus-visible, .promo-arrow:focus-visible {
+  outline: 2px solid var(--brand); outline-offset: 2px;
+}
+
+/* The admin's list of banners: the picture, and what can be done to it. */
+.bnr {
+  display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr);
+  gap: 16px; align-items: center;
+  padding: 14px 18px; border-top: 1px solid var(--line-soft);
+}
+.bnr.off { opacity: .5; }
+.bnr-img {
+  width: 100%; height: auto; display: block; border-radius: 8px;
+  border: 1px solid var(--line); background: #fff;
+}
+.bnr-side { display: flex; flex-direction: column; gap: 8px; }
+.bnr-cap { display: flex; gap: 6px; }
+.bnr-cap input {
+  flex: 1; min-width: 0; padding: 7px 10px; font: inherit; font-size: 13.5px;
+  border: 1px solid var(--line); border-radius: 7px;
+  background: var(--card); color: var(--ink);
+}
+.bnr-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.bnr-acts button[disabled] { opacity: .35; cursor: default; }
+.danger-text { color: var(--red); }
+@media (max-width: 700px) { .bnr { grid-template-columns: 1fr; } }
 
 /* counters */
 .counters { background: linear-gradient(180deg, #FFFFFF 0%, var(--sky) 100%); padding: 34px 0 30px; }
@@ -821,7 +879,7 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
 .foot-links a:hover { color: #fff; }
 
 @media (max-width: 900px) {
-  .promo-strip { padding: 6px 10px; }
+  .promo-cell { padding: 6px 10px; }
   .counters-grid { grid-template-columns: repeat(2, 1fr); }
   .act-row { grid-template-columns: auto 1fr; row-gap: 8px; }
   .act-bar { grid-column: 1 / -1; }

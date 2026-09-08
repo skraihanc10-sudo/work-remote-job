@@ -57,48 +57,102 @@
   }
 })();
 
-/* The banner strip: swap which one is showing, on a timer.
+/* The banner strip: swipeable, and it advances on its own.
 
-   Both images are already in the page and decoded, so a change is a class
-   move rather than a fetch - nothing blinks and nothing arrives late.
+   Almost nothing here is about the swipe. The banners are in a scroll
+   container with scroll-snap, so touch, trackpad, mouse drag and the keyboard
+   already scroll it - reimplementing that in JavaScript is how carousels end
+   up fighting the browser and feeling wrong on a phone. This adds the parts
+   the browser has no opinion about: a timer, the dots, and the arrows.
 
-   It stops while the tab is in the background. A timer that keeps firing on a
-   hidden tab burns battery to animate something nobody is looking at, and on
-   returning you would land mid-cycle anyway.
+   Three things it deliberately does:
+
+     - stops the timer while the tab is hidden, so a background tab is not
+       burning battery to animate something nobody is looking at;
+     - pauses briefly after a person scrolls it themselves, because advancing
+       out from under somebody who is reading is worse than not advancing;
+     - does nothing at all if there is one banner, where an auto-advancing
+       carousel of one is just a way to make the page busy.
 */
 (function () {
   'use strict';
   var strip = document.getElementById('promo-strip');
-  if (!strip) return;
+  var track = document.getElementById('promo-track');
+  if (!strip || !track) return;
 
-  var slides = strip.querySelectorAll('.promo-slide');
-  if (slides.length < 2) return;
+  var cells = track.querySelectorAll('.promo-cell');
+  if (cells.length < 2) return;
 
+  var dots = strip.querySelectorAll('.promo-dot');
   var every = Number(strip.dataset.every) || 15000;
-  var at = 0;
   var timer = null;
+  var holdUntil = 0;
 
-  function show(next) {
-    slides[at].classList.remove('on');
-    slides[at].setAttribute('aria-hidden', 'true');
-    at = next;
-    slides[at].classList.add('on');
-    slides[at].removeAttribute('aria-hidden');
+  function at() {
+    // Which one is closest to the middle - not floor(scrollLeft / width),
+    // which lands on the wrong one halfway through a swipe.
+    var mid = track.scrollLeft + track.clientWidth / 2;
+    var best = 0, bestD = Infinity;
+    for (var i = 0; i < cells.length; i++) {
+      var c = cells[i].offsetLeft + cells[i].offsetWidth / 2;
+      var d = Math.abs(c - mid);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
   }
 
-  function start() {
-    if (timer) return;
-    timer = setInterval(function () { show((at + 1) % slides.length); }, every);
+  function go(i) {
+    var n = (i + cells.length) % cells.length;
+    track.scrollTo({ left: cells[n].offsetLeft, behavior: 'smooth' });
   }
-  function stop() {
-    if (!timer) return;
-    clearInterval(timer);
-    timer = null;
+
+  function paint() {
+    var now = at();
+    for (var i = 0; i < dots.length; i++) {
+      var on = i === now;
+      dots[i].classList.toggle('on', on);
+      dots[i].setAttribute('aria-selected', on ? 'true' : 'false');
+    }
   }
+
+  function tick() {
+    if (document.hidden) return;
+    if (Date.now() < holdUntil) return;
+    go(at() + 1);
+  }
+
+  function start() { if (!timer) timer = setInterval(tick, every); }
+  function stop() { if (timer) { clearInterval(timer); timer = null; } }
+
+  // A touch of the strip means somebody is looking at it. Give them a while.
+  function hold() { holdUntil = Date.now() + every * 2; }
+
+  var painting = null;
+  track.addEventListener('scroll', function () {
+    clearTimeout(painting);
+    painting = setTimeout(paint, 90);
+  }, { passive: true });
+
+  track.addEventListener('pointerdown', hold, { passive: true });
+  track.addEventListener('touchstart', hold, { passive: true });
+  strip.addEventListener('mouseenter', function () { holdUntil = Date.now() + every; });
+
+  for (var d = 0; d < dots.length; d++) {
+    (function (btn) {
+      btn.addEventListener('click', function () { hold(); go(Number(btn.dataset.to)); });
+    })(dots[d]);
+  }
+
+  var prev = document.getElementById('promo-prev');
+  var next = document.getElementById('promo-next');
+  if (prev) prev.addEventListener('click', function () { hold(); go(at() - 1); });
+  if (next) next.addEventListener('click', function () { hold(); go(at() + 1); });
 
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) stop(); else start();
   });
+
+  paint();
   start();
 })();
 

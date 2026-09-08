@@ -704,6 +704,35 @@ const MIGRATIONS = [
         ('Contest React', 'contest-react');
     `,
   },
+  {
+    id: 12,
+    name: 'banners an admin can upload',
+    sql: `
+      /* The strip above every page.
+
+         Rows here, files on the volume - never in the source tree, because
+         anything written into the app folder is gone at the next deploy and
+         an admin who uploaded a banner would watch it vanish.
+
+         The sort column decides the order and is what the reorder buttons
+         move. It is deliberately not the id: reordering must not renumber
+         anything a file name or a caption is attached to. */
+      CREATE TABLE banners (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        file       TEXT NOT NULL UNIQUE,
+        caption    TEXT NOT NULL DEFAULT '',
+        -- The words drawn inside the picture, for a screen reader and for
+        -- search: neither can read text that is part of an image.
+        link       TEXT,
+        sort       INTEGER NOT NULL DEFAULT 0,
+        active     INTEGER NOT NULL DEFAULT 1,
+        width      INTEGER,
+        height     INTEGER,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_banners_order ON banners(active, sort, id);
+    `,
+  },
 ];
 
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (

@@ -26,6 +26,7 @@ const mail = require('./lib/mail');
 const stats = require('./lib/stats');
 const smtp = require('./lib/smtp');
 const apimail = require('./lib/apimail');
+const banners = require('./lib/banners');
 const passwords = require('./lib/passwords');
 const quality = require('./lib/quality');
 const money = require('./lib/money');
@@ -382,6 +383,21 @@ app.get('/favicon.ico', (req, res) => {
    two people involved and an admin; and a job's reference photos, which are
    part of the listing itself and as public as the job page they sit on - no
    `need()` here for that reason, and the route decides per file. */
+/* Banner images.
+
+   Public, cached hard, and served from the volume rather than the source tree
+   - these are uploaded by an admin and have to survive a deploy. The name is
+   reduced to a basename inside fileFor, so nothing in a URL can walk out of
+   the folder.
+*/
+app.get('/banner/:name', (req, res) => {
+  const file = banners.fileFor(req.params.name);
+  if (!file) return res.status(404).end();
+  // A replaced banner gets a new name, so the old one can be cached for a year.
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.sendFile(file);
+});
+
 app.get('/proof/:name', (req, res) => {
   const name = path.basename(String(req.params.name));
   const file = path.join(DATA_DIR, 'proofs', name);
@@ -491,7 +507,6 @@ app.get('/', (req, res) => {
 
      Without JavaScript the first one stays put, which is a working banner
      rather than a broken carousel. -->
-${promoStrip()}
 
 <section class="hero2">
   <div class="hero2-copy">
@@ -2391,48 +2406,6 @@ ${waiting ? `<div class="alert alert-warn">
 </div>`,
   });
 });
-
-/* The banner strip above the heading.
-
-   Every banner-N.png in the assets folder, in numeric order, discovered at
-   request time rather than listed here. Adding one is dropping a file in and
-   naming it - no code to touch, which is the point: whoever is drawing these
-   is not going to be editing JavaScript.
-
-   The caption for each comes from banner-N.txt beside it if one exists, so a
-   screen reader and a search engine get the words that are drawn into the
-   picture. Without that file the image is decorative as far as they are
-   concerned, which is honest - better than a made-up caption.
-
-   Read fresh each time. These change while somebody is designing them, and a
-   cached list would mean a new banner not appearing until a restart. */
-function promoBanners() {
-  const dir = path.join(__dirname, 'web', 'assets');
-  let files;
-  try { files = fs.readdirSync(dir); } catch { return []; }
-
-  return files
-    .map(f => (f.match(/^banner-(\d+)\.png$/) || [])[1] ? { f, n: Number(f.match(/^banner-(\d+)\.png$/)[1]) } : null)
-    .filter(Boolean)
-    .sort((a, b) => a.n - b.n)
-    .map(({ f, n }) => {
-      let alt = '';
-      try { alt = fs.readFileSync(path.join(dir, `banner-${n}.txt`), 'utf8').trim(); } catch { /* none */ }
-      return { file: f, alt };
-    });
-}
-
-function promoStrip() {
-  const banners = promoBanners();
-  if (!banners.length) return '';
-
-  return `<div class="promo-strip" id="promo-strip" data-every="15000">
-  ${banners.map((b, i) => `<img class="promo-slide${i === 0 ? ' on' : ''}"
-    src="/assets/${V.esc(b.file)}?v=${V.assetVersion(b.file)}"
-    alt="${V.esc(b.alt)}"${i === 0 ? '' : ' aria-hidden="true"'}
-    ${b.alt ? '' : 'role="presentation"'}>`).join('\n  ')}
-</div>`;
-}
 
 /* All the photos on one job or submission, oldest first. */
 function photosFor(ownerType, ownerId) {
@@ -6234,6 +6207,139 @@ ${mine ? `
    contain a suspended account or somebody an admin is already looking at, and
    a prize paid automatically to a cheat is very hard to take back.
 */
+/* ====================================================================
+   The banner strip, managed.
+
+   Uploads land on the volume, not in the source tree, so they survive a
+   deploy - which is the whole reason this is a database table and an upload
+   rather than files committed next to the code.
+   ==================================================================== */
+
+const bannerUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      try { banners.ensureDir(); cb(null, banners.DIR); }
+      catch (err) { cb(err); }
+    },
+    filename: (req, file, cb) => {
+      const ext = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' }[file.mimetype] || '';
+      // A fresh name every time, so a replaced banner is never served from
+      // somebody's cache under the old one's name.
+      cb(null, 'b' + Date.now().toString(36) + crypto.randomBytes(4).toString('hex') + ext);
+    },
+  }),
+  limits: { fileSize: 3 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) => {
+    const ok = ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype);
+    cb(ok ? null : new Error('A banner must be a JPG, PNG or WebP image'), ok);
+  },
+});
+
+app.get('/admin/banners', need('admin'), (req, res) => {
+  const rows = banners.all();
+  const liveCount = rows.filter(b => b.active).length;
+
+  send(req, res, {
+    title: 'Banners', active: 'banners', wide: true,
+    body: `
+<div class="page-head"><div><h1>Banners</h1>
+  <p class="muted">The strip under the header, on every page. ${liveCount} showing,
+     changing every 15 seconds. People can also swipe between them.</p></div></div>
+
+<div class="card pad">
+  <h2>Add a banner</h2>
+  <p class="muted">A wide, short image works best &mdash; the ones here are about
+     1000 &times; 140. It is shown at up to 1000px wide, so anything much larger is
+     weight nobody sees. Keep it under 3MB.
+     <span class="bn">চওড়া আর কম উঁচু ছবি দিন (প্রায় ১০০০ × ১৪০)। ৩MB-র নিচে রাখুন।</span></p>
+
+  <form method="post" action="/admin/banners" enctype="multipart/form-data">
+    ${csrfField(req)}
+    <div class="field">
+      <label for="b-file">Image</label>
+      <input id="b-file" type="file" name="banner" accept="image/jpeg,image/png,image/webp" required>
+    </div>
+    ${V.field({ label: 'The words in the picture', name: 'caption',
+      placeholder: 'ঘরে বসে প্রতিদিন ৳৫০০ - ৳১,০০০ ইনকাম করুন',
+      hint: 'Type what the banner says. Google cannot read text inside an image, and neither can a screen reader - this is how they know. / ছবির ভেতরের লেখাটা এখানে লিখুন।' })}
+    <button class="btn" type="submit">Add it</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>The strip</h2>
+    <span class="dim">top of the list shows first</span></div>
+  ${rows.length ? rows.map((b, i) => `
+  <div class="bnr ${b.active ? '' : 'off'}">
+    <img class="bnr-img" src="/banner/${V.esc(b.file)}" alt="">
+    <div class="bnr-side">
+      <form method="post" action="/admin/banners/${b.id}/caption" class="bnr-cap">
+        ${csrfField(req)}
+        <input type="text" name="caption" value="${V.esc(b.caption)}" maxlength="300"
+               placeholder="What this banner says">
+        <button class="btn btn-ghost btn-sm" type="submit">Save</button>
+      </form>
+      <div class="bnr-acts">
+        <form method="post" action="/admin/banners/${b.id}/move" class="inline">
+          ${csrfField(req)}<input type="hidden" name="dir" value="up">
+          <button class="btn btn-ghost btn-sm" type="submit" ${i === 0 ? 'disabled' : ''}>&uarr;</button>
+        </form>
+        <form method="post" action="/admin/banners/${b.id}/move" class="inline">
+          ${csrfField(req)}<input type="hidden" name="dir" value="down">
+          <button class="btn btn-ghost btn-sm" type="submit" ${i === rows.length - 1 ? 'disabled' : ''}>&darr;</button>
+        </form>
+        <form method="post" action="/admin/banners/${b.id}/toggle" class="inline">
+          ${csrfField(req)}
+          <button class="btn btn-ghost btn-sm" type="submit">${b.active ? 'Hide' : 'Show'}</button>
+        </form>
+        <form method="post" action="/admin/banners/${b.id}/delete" class="inline"
+              onsubmit="return confirm('Delete this banner? The image file is removed too.')">
+          ${csrfField(req)}
+          <button class="btn btn-ghost btn-sm danger-text" type="submit">Delete</button>
+        </form>
+      </div>
+      <div class="dim fine">${b.width || '?'} &times; ${b.height || '?'}
+        ${b.active ? '' : '&middot; hidden'}</div>
+    </div>
+  </div>`).join('') : '<div class="pad muted">No banners. The strip is hidden until you add one.</div>'}
+</div>`,
+  });
+});
+
+/* Multipart, so the CSRF check runs again after multer - the global one skips
+   multipart bodies because the fields are not parsed when it runs. */
+app.post('/admin/banners', need('admin'), bannerUpload.single('banner'), checkCsrf, (req, res) => {
+  if (!req.file) return back(res, '/admin/banners', 'Choose an image first.', 'fail');
+  const id = banners.add({ file: req.file.filename, caption: req.body.caption });
+  audit(req.user.id, 'banner_added', `banner:${id}`, { file: req.file.filename }, req.ip);
+  back(res, '/admin/banners', 'Added. It is showing on the site now.', 'ok');
+});
+
+app.post('/admin/banners/:id/caption', need('admin'), (req, res) => {
+  banners.setCaption(Number(req.params.id), req.body.caption);
+  back(res, '/admin/banners', 'Saved.', 'ok');
+});
+
+app.post('/admin/banners/:id/toggle', need('admin'), (req, res) => {
+  const row = banners.all().find(b => b.id === Number(req.params.id));
+  if (!row) return back(res, '/admin/banners', 'No such banner.', 'fail');
+  banners.setActive(row.id, !row.active);
+  audit(req.user.id, row.active ? 'banner_hidden' : 'banner_shown', `banner:${row.id}`, null, req.ip);
+  back(res, '/admin/banners', row.active ? 'Hidden.' : 'Showing.', 'ok');
+});
+
+app.post('/admin/banners/:id/move', need('admin'), (req, res) => {
+  banners.move(Number(req.params.id), req.body.dir === 'up' ? 'up' : 'down');
+  back(res, '/admin/banners', 'Moved.', 'ok');
+});
+
+app.post('/admin/banners/:id/delete', need('admin'), (req, res) => {
+  const id = Number(req.params.id);
+  if (!banners.remove(id)) return back(res, '/admin/banners', 'No such banner.', 'fail');
+  audit(req.user.id, 'banner_deleted', `banner:${id}`, null, req.ip);
+  back(res, '/admin/banners', 'Deleted.', 'info');
+});
+
 app.get('/admin/prizes', need('admin'), (req, res) => {
   const month = /^\d{4}-\d{2}$/.test(String(req.query.m || '')) ? req.query.m : null;
   const board = stats.leaderboard(month, 25);
@@ -6661,6 +6767,21 @@ function shutdown(signal) {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+/* The banner strip's first run.
+
+   The shipped banners are copied onto the volume and registered once, on the
+   first boot where the table is empty. Guarded that way rather than on the
+   files being missing: an admin who deleted every banner meant it, and a
+   deploy that put them all back would be the site overruling them. */
+try {
+  const seeded = banners.seedIfEmpty();
+  if (seeded) console.log(`  banners   ${seeded} installed on first run`);
+} catch (e) {
+  // Not fatal. A site with no banner strip is a site; a site that will not
+  // boot because of a banner is not.
+  console.error('  banners   could not be installed:', e.message);
+}
 
 // Housekeeping: abandoned slots go back in the pool, dead sessions get swept.
 setInterval(() => {
