@@ -40,7 +40,16 @@
   --brand-bg:     #E5F1FD;
   --brand-bright: #0084EC;
 
-  --navy:      #3B3E42;      /* the logo's dark grey: headings, footer, bands */
+  --navy:      #3B3E42;      /* the logo's dark grey: headings and bands */
+  /* The footer's own ground. Deliberately not --navy: that one is a text
+     colour and inverts with the theme, which turned the footer light. */
+  --foot:      #2B2E33;
+  --foot-line: rgba(255,255,255,.10);
+  /* Panels that carry white text: the sign-in side, the call-to-action band,
+     the drawer, the admin's todo strip. They need a ground that is dark in
+     BOTH themes - using --navy meant they turned light grey in dark mode and
+     put white text on a light block. */
+  --panel:     #3B3E42;
   --navy-dk:   #292C2F;
   --navy-bg:   #EEF1F4;
   --green:     #157A3A;      /* status only: money in, approved, paid */
@@ -83,6 +92,12 @@
     --brand-bright: #4B9BFF;
 
     --navy:      #A8B3BE;
+    /* Darker than the page, so the footer still reads as the end of it. */
+    --foot:      #0A0D10;
+    --foot-line: rgba(255,255,255,.07);
+    /* Deep blue rather than grey: on a dark page a neutral panel disappears
+       into the card behind it, and the blue is the brand's own. */
+    --panel:     #1B3A5E;
     --navy-dk:   #C2CCD5;
     --navy-bg:   #1B2026;
     --green:     #4CC97A;
@@ -480,7 +495,7 @@ ul.tight li { margin-bottom: 2px; }
 /* The live panel. Numbers are counted, never typed, so they are allowed to
    look confident. */
 .hero-panel {
-  background: var(--navy); color: #fff; border-radius: 14px;
+  background: var(--panel); color: #fff; border-radius: 14px;
   padding: 22px 24px; display: flex; flex-direction: column; gap: 16px;
 }
 .hero-panel-head {
@@ -534,15 +549,15 @@ ul.tight li { margin-bottom: 2px; }
 }
 
 .cta-band {
-  background: var(--navy); color: #fff; border-radius: 14px;
+  background: var(--panel); color: #fff; border-radius: 14px;
   padding: 30px 34px; margin: 44px 0 0;
   display: flex; align-items: center; justify-content: space-between;
   gap: 24px; flex-wrap: wrap;
 }
 .cta-band h2 { color: #fff; margin-bottom: 4px; }
 .cta-band p { margin: 0; color: rgba(255,255,255,.72); }
-.cta-band .btn { background: #fff; color: var(--navy); border-color: #fff; }
-.cta-band .btn:hover { background: #E7EDF5; color: var(--navy); border-color: #E7EDF5; }
+.cta-band .btn { background: #fff; color: var(--panel); border-color: #fff; }
+.cta-band .btn:hover { background: #E7EDF5; color: var(--panel); border-color: #E7EDF5; }
 
 /* ================================================================ sign in */
 .signin-split {
@@ -553,7 +568,7 @@ ul.tight li { margin-bottom: 2px; }
 .signin-left { padding: 40px 38px; display: flex; flex-direction: column; justify-content: center; }
 .signin-left h1 { font-size: 26px; margin-bottom: 8px; }
 .signin-right {
-  background: var(--navy); color: #fff; padding: 40px 38px;
+  background: var(--panel); color: #fff; padding: 40px 38px;
   display: flex; flex-direction: column; justify-content: center; gap: 20px;
 }
 .signin-right h2 { color: #fff; font-size: 17px; }
@@ -596,7 +611,7 @@ ul.tight li { margin-bottom: 2px; }
 /* Full bleed: the band should reach both edges of the window, not stop at the
    content column. The negative margins pull it out of the centred wrap. */
 .page-hero {
-  background: var(--navy); color: #fff;
+  background: var(--panel); color: #fff;
   margin: -26px calc(50% - 50vw) 30px;
   padding: 44px 0 38px;
 }
@@ -668,18 +683,44 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
    page reads when you scroll it quickly. */
 .bleed, .counters, .band, .services { margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); }
 
-.hero2 {
-  display: grid; grid-template-columns: 1.05fr .95fr; gap: 40px;
-  align-items: center; padding: 34px 0 46px;
-}
+/* One column now that the artwork is gone. The copy is the hero. */
+.hero2 { padding: 34px 0 30px; }
 .hero2 h1 {
   font-size: clamp(30px, 4.6vw, 50px); line-height: 1.13;
   letter-spacing: -.02em; color: var(--navy); margin-bottom: 16px;
 }
 .hero2-sub { font-size: 16px; color: var(--ink-2); margin-bottom: 2px; font-weight: 600; }
 .hero2-line { font-size: 15px; color: var(--muted); margin-bottom: 26px; }
-.hero2-art { min-width: 0; }
-.hero2-art svg { display: block; max-height: 340px; }
+/* ---------------------------------------------------------------- ticker
+
+   One sentence sliding past, edge to edge. The track holds two identical
+   copies and travels exactly -50% of its own width, so the moment the first
+   copy leaves the animation restarts with the second in precisely the place
+   the first began - continuous, with no visible seam.
+
+   It stops for anyone who has asked for less motion, and on a narrow phone it
+   runs faster, because the same distance across a smaller screen otherwise
+   feels like it has stalled. */
+.ticker {
+  overflow: hidden; white-space: nowrap;
+  background: var(--brand-bg); border-block: 1px solid var(--line);
+  padding: 11px 0; margin-bottom: 8px;
+}
+.ticker-track {
+  display: inline-flex; will-change: transform;
+  animation: ticker 26s linear infinite;
+}
+.ticker-item {
+  font-size: 15px; font-weight: 600; color: var(--brand-dk);
+  padding-right: 8px;
+}
+.ticker-item b { color: var(--green); font-weight: 800; }
+@keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.ticker:hover .ticker-track { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track { animation: none; }
+  .ticker { text-align: center; white-space: normal; }
+}
 
 /* counters */
 .counters { background: linear-gradient(180deg, #FFFFFF 0%, var(--sky) 100%); padding: 34px 0 30px; }
@@ -775,14 +816,14 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
 .findwork h2 { color: #fff; font-size: clamp(26px, 3.4vw, 40px); margin: 4px 0 0; }
 
 /* footer in the same family */
-.foot { background: var(--navy); border-top: none; color: rgba(255,255,255,.72); }
+.foot { background: var(--foot); border-top: 1px solid var(--foot-line); color: rgba(255,255,255,.72); }
 .foot-inner { color: rgba(255,255,255,.6); padding-top: 24px; padding-bottom: 24px; }
 .foot-links a { color: rgba(255,255,255,.8); }
 .foot-links a:hover { color: #fff; }
 
 @media (max-width: 900px) {
-  .hero2 { grid-template-columns: 1fr; }
-  .hero2-art { order: -1; max-width: 420px; }
+  .ticker-track { animation-duration: 16s; }
+  .ticker-item { font-size: 14px; }
   .counters-grid { grid-template-columns: repeat(2, 1fr); }
   .act-row { grid-template-columns: auto 1fr; row-gap: 8px; }
   .act-bar { grid-column: 1 / -1; }
@@ -795,12 +836,16 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
   display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 34px;
   padding-top: 48px; padding-bottom: 40px;
 }
+.foot-name {
+  font-family: var(--head); font-size: 17px; font-weight: 700; color: #fff;
+  margin: 0 0 10px; letter-spacing: -.01em;
+}
 .foot-mark { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .foot-mark span { font-family: var(--head); font-size: 16px; color: #fff; font-weight: 500; }
 .foot-mark b { font-weight: 700; }
 /* White leaf on the dark footer, with the bars cut out in the footer's own
    colour - otherwise white-on-white makes it a featureless blob. */
-.foot-mark .brand-mark { color: #fff; --mark-cut: var(--navy); }
+.foot-mark .brand-mark { color: #fff; --mark-cut: var(--foot); }
 .foot-brand p { font-size: 14px; color: rgba(255,255,255,.62); max-width: 34ch; line-height: 1.7; }
 .foot-addr { font-size: 13.5px; }
 .foot h5 {
@@ -840,7 +885,7 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
 }
 .burger {
   width: 42px; height: 42px; border-radius: 50%; flex: none;
-  background: var(--navy); border: none; cursor: pointer;
+  background: var(--panel); border: none; cursor: pointer;
   display: grid; place-content: center; gap: 4px; padding: 0;
 }
 .burger span { display: block; width: 17px; height: 2px; background: #fff; border-radius: 2px; }
@@ -852,7 +897,7 @@ a.feed-row:hover { background: var(--sunk); text-decoration: none; }
 }
 .drawer-panel {
   position: absolute; top: 0; right: 0; bottom: 0; width: min(86vw, 330px);
-  background: var(--navy); color: #fff; display: flex; flex-direction: column;
+  background: var(--panel); color: #fff; display: flex; flex-direction: column;
   overflow-y: auto; box-shadow: -8px 0 30px rgba(0,0,0,.3);
 }
 .drawer-top {
@@ -1094,7 +1139,7 @@ label.check span { font-size: 13px; color: var(--ink-2); line-height: 1.5; }
 /* What is waiting for a person, before any totals. A dashboard that opens with
    a wall of numbers teaches people to skim past the one that mattered. */
 .todo {
-  background: var(--navy); color: #fff; border-radius: 12px;
+  background: var(--panel); color: #fff; border-radius: 12px;
   padding: 18px 20px; margin-bottom: 24px;
 }
 .todo > b { display: block; font-family: var(--head); font-size: 14px; margin-bottom: 12px; opacity: .85; }
@@ -1145,7 +1190,7 @@ a.kpi:hover { border-color: var(--brand); }
   padding: 6px 13px; border: 1px solid var(--line); border-radius: 7px;
   background: var(--card); color: var(--ink-2); text-decoration: none; font-size: 13px;
 }
-.range a.on { background: var(--navy); border-color: var(--navy); color: #fff; font-weight: 600; }
+.range a.on { background: var(--panel); border-color: var(--panel); color: #fff; font-weight: 600; }
 .range a:hover:not(.on) { border-color: var(--brand); }
 .wide-range { margin-bottom: 16px; }
 .wide-range a i { font-style: normal; opacity: .65; margin-left: 4px; }
@@ -1352,7 +1397,7 @@ h2 .bn, h1 .bn { color: var(--muted); font-weight: 500; font-size: .72em; margin
 }
 .lvl-badge.l1 { background: #E8EDF2; color: #4A5A6A; }
 .lvl-badge.l2 { background: #FBF0D6; color: #8A6714; }
-.lvl-badge.l3 { background: var(--navy); color: #F5D77A; }
+.lvl-badge.l3 { background: var(--panel); color: #F5D77A; }
 
 .lvl-bar { height: 9px; border-radius: 100px; background: var(--sunk); overflow: hidden; margin-bottom: 9px; }
 .lvl-bar span { display: block; height: 100%; background: var(--brand); border-radius: 100px; }

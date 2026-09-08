@@ -404,8 +404,9 @@ ${body}
 <footer class="foot">
   <div class="wrap foot-grid">
     <div class="foot-brand">
-      <div class="foot-mark">${brandLockup(true)
-        || `${logoMark()}<span>Remote <b>Work BD</b></span>`}</div>
+      <!-- No lockup here. The header carries it on every page, and a second
+           one directly above the same words reads as a duplicate. -->
+      <h4 class="foot-name">${SITE}</h4>
       <p>Microjob and freelancing site to make money online. Every job is funded
          before it goes live.</p>
       ${getSetting('business_address', '') ? `<h5>Address</h5>

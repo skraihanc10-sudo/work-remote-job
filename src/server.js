@@ -494,47 +494,25 @@ app.get('/', (req, res) => {
         stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M5 12h13"/><path d="M13 6l6 6-6 6"/></svg></a>
   </div>
-  <div class="hero2-art" aria-hidden="true">
-    <svg viewBox="0 0 420 360" width="100%" height="100%">
-      <defs>
-        <linearGradient id="cA" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#F79E45"/><stop offset="1" stop-color="#E8622A"/></linearGradient>
-        <linearGradient id="cB" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#A78BFA"/><stop offset="1" stop-color="#7C5CE0"/></linearGradient>
-        <linearGradient id="cC" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#34D399"/><stop offset="1" stop-color="#0E9F6E"/></linearGradient>
-        <linearGradient id="cD" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#F472B6"/><stop offset="1" stop-color="#DB4F93"/></linearGradient>
-      </defs>
-      <g stroke="#DCE4F0" stroke-width="1" fill="none" opacity=".9">
-        ${[0, 1, 2, 3, 4].map(i => `<path d="M${60 + i * 66} 40 L${170 + i * 66} 150 L${60 + i * 66} 260 L${-50 + i * 66} 150 Z"/>`).join('')}
-      </g>
-      <g>
-        <path d="M120 190 L175 158 L230 190 L175 222 Z" fill="url(#cA)"/>
-        <path d="M120 190 L175 222 L175 300 L120 268 Z" fill="url(#cA)" opacity=".78"/>
-        <path d="M230 190 L175 222 L175 300 L230 268 Z" fill="url(#cA)" opacity=".55"/>
-
-        <path d="M250 78 L292 54 L334 78 L292 102 Z" fill="url(#cB)"/>
-        <path d="M250 78 L292 102 L292 158 L250 134 Z" fill="url(#cB)" opacity=".78"/>
-        <path d="M334 78 L292 102 L292 158 L334 134 Z" fill="url(#cB)" opacity=".55"/>
-
-        <path d="M74 96 L104 78 L134 96 L104 114 Z" fill="url(#cC)"/>
-        <path d="M74 96 L104 114 L104 152 L74 134 Z" fill="url(#cC)" opacity=".78"/>
-        <path d="M134 96 L104 114 L104 152 L134 134 Z" fill="url(#cC)" opacity=".55"/>
-
-        <path d="M276 208 L308 190 L340 208 L308 226 Z" fill="url(#cD)"/>
-        <path d="M276 208 L308 226 L308 264 L276 246 Z" fill="url(#cD)" opacity=".78"/>
-        <path d="M340 208 L308 226 L308 264 L340 246 Z" fill="url(#cD)" opacity=".55"/>
-      </g>
-      <path d="M352 30 C398 44 384 84 350 76 C322 70 336 40 366 52" stroke="#1F9D4D"
-        stroke-width="2.4" fill="none" stroke-linecap="round"/>
-      <path d="M56 296 C104 330 156 322 196 300" stroke="#1F9D4D" stroke-width="2.4"
-        fill="none" stroke-linecap="round"/>
-      <path d="M188 292 l12 8 -13 6" stroke="#1F9D4D" stroke-width="2.4" fill="none"
-        stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-  </div>
 </section>
+
+<!-- One line, moving. It says the thing a visitor actually wants to know -
+     how much, and what it takes - and it moves because a static line in this
+     spot reads as decoration and gets skipped.
+
+     Duplicated once, and the track shifts by exactly half its width, so the
+     end of the second copy meets the start of the first with no gap or jump.
+     aria-hidden on the copy, so a screen reader hears the sentence once. -->
+<div class="ticker">
+  <div class="ticker-track">
+    <span class="ticker-item">ঘরে বসে প্রতিদিন <b>৳৫০০&ndash;৳১,০০০</b> ইনকাম করুন
+      &nbsp;&middot;&nbsp; Smartphone দিয়ে সহজ Online Task করুন, নিজের সময় অনুযায়ী কাজ করুন।
+      &nbsp;&middot;&nbsp;</span>
+    <span class="ticker-item" aria-hidden="true">ঘরে বসে প্রতিদিন <b>৳৫০০&ndash;৳১,০০০</b> ইনকাম করুন
+      &nbsp;&middot;&nbsp; Smartphone দিয়ে সহজ Online Task করুন, নিজের সময় অনুযায়ী কাজ করুন।
+      &nbsp;&middot;&nbsp;</span>
+  </div>
+</div>
 
 <section class="counters">
   <div class="wrap counters-grid">
