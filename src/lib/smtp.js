@@ -259,7 +259,7 @@ async function upgrade(socket, host) {
 /* Deliver one message. Resolves on a 250 for the final dot - which is the
    only point at which the server has taken responsibility for it - and
    rejects with something a person can act on otherwise. */
-async function send(config, message) {
+async function sendOnce(config, message) {
   const port = Number(config.port) || 587;
   // Port 465 means TLS from the first byte, and 587 means upgrade with
   // STARTTLS. That is the convention, not a rule - some hosts put implicit
@@ -323,7 +323,7 @@ async function send(config, message) {
 /* Open a connection, authenticate, and hang up without sending anything.
    What the admin "send a test" button uses to separate "the settings are
    wrong" from "the message was rejected". */
-async function check(config) {
+async function checkOnce(config) {
   const port = Number(config.port) || 587;
   const implicitTls = config.secure === undefined ? port === 465 : !!config.secure;
   const host = String(config.host || '').trim();
@@ -362,4 +362,70 @@ async function check(config) {
   }
 }
 
-module.exports = { send, check, buildMessage, encodeHeader, dotStuff };
+/* ---------------------------------------------------------------- port fallback
+
+   Mail hosts offer the same service on two ports - 587 with STARTTLS and 465
+   with TLS from the first byte - and which of them a network will let out is
+   not something the person configuring the site can know. Railway, and most
+   container hosts, block outbound SMTP to varying degrees; the symptom is a
+   connection that never opens:
+
+     Could not open a connection to smtp.gmail.com:587 (ETIMEDOUT)
+
+   Nothing about the settings is wrong in that case, and the fix is a different
+   port. So the other one is tried once before giving up, which turns an
+   afternoon of guessing into the mail arriving.
+
+   Only on a connection failure. An authentication failure means the password
+   is wrong, and trying a wrong password again somewhere else achieves nothing
+   except a second entry in Google's security log - so those are returned
+   straight away, with the original message intact.
+*/
+const OTHER_PORT = { 587: 465, 465: 587, 25: 587, 2525: 587 };
+
+function isConnectionFailure(err) {
+  const m = String((err && err.message) || '');
+  const code = String((err && err.code) || '');
+  return /Could not open a connection|Could not reach|ETIMEDOUT|ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|EAFNOSUPPORT/i
+    .test(m + ' ' + code);
+}
+
+async function withPortFallback(fn, config, ...rest) {
+  try {
+    return await fn(config, ...rest);
+  } catch (err) {
+    const port = Number(config.port) || 587;
+    const alt = OTHER_PORT[port];
+    // No alternative, or the port was not the problem: report what happened.
+    if (!alt || !isConnectionFailure(err)) throw err;
+
+    try {
+      // `secure` is set explicitly rather than left to the port convention,
+      // because the caller may have pinned it for the original port.
+      return await fn({ ...config, port: alt, secure: alt === 465 }, ...rest);
+    } catch (second) {
+      /* Both closed. Say so as one failure naming both ports - two separate
+         timeouts in a log look like an intermittent fault, when the truth is
+         that this network does not let SMTP out at all and no port will fix
+         it. That is worth knowing, because the answer is then an API rather
+         than more guessing. */
+      if (isConnectionFailure(second)) {
+        const e = new Error(
+          `Could not reach ${config.host} on port ${port} or ${alt}. Both were tried. `
+          + 'This network appears to block outbound SMTP, which no port setting will '
+          + 'get past - use a mail API instead. '
+          + `(${port}: ${err.message} | ${alt}: ${second.message})`);
+        e.code = 'SMTP_BLOCKED';
+        throw e;
+      }
+      // The second attempt got through and failed for a real reason - a wrong
+      // password, a refused sender. That is the useful error.
+      throw second;
+    }
+  }
+}
+
+const send = (config, message) => withPortFallback(sendOnce, config, message);
+const check = config => withPortFallback(checkOnce, config);
+
+module.exports = { send, check, sendOnce, checkOnce, buildMessage, encodeHeader, dotStuff };

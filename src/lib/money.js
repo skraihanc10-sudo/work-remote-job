@@ -278,6 +278,7 @@ function requestWithdrawal(userId, amount, method, payout) {
     ? `${name} - ${bank}, ${branch} - ${number}`
     : `${name} - ${number}`;
 
+  let committed = null;
   db.exec('BEGIN IMMEDIATE');
   try {
     // Debit immediately so the same balance cannot be withdrawn twice while
@@ -290,17 +291,45 @@ function requestWithdrawal(userId, amount, method, payout) {
     const id = Number(info.lastInsertRowid);
     entry(userId, 'withdrawal_hold', -amount, { type: 'withdrawal', id }, 'Withdrawal requested');
 
-    // Remembered so nobody retypes an account number every time.
+    // Remembered so nobody retypes an account number every time. Whether it
+    // actually changed is worth knowing, because a changed payout number is
+    // what a stolen account looks like from the outside.
+    const had = db.prepare('SELECT payout_detail, payout_name FROM users WHERE id = ?').get(userId);
+    const payoutMoved = !!had && (had.payout_detail !== number || had.payout_name !== name)
+      && !!(had.payout_detail || had.payout_name);
+
     db.prepare(`UPDATE users SET payout_method = ?, payout_detail = ?, payout_name = ?,
                 payout_bank = ?, payout_branch = ? WHERE id = ?`)
       .run(method, number, name, bank || null, branch || null, userId);
 
     db.exec('COMMIT');
-    return id;
+    committed = { id, payoutMoved };
   } catch (err) {
     db.exec('ROLLBACK');
     throw err;
   }
+
+  /* Told after the transaction closes, and outside the try.
+
+     Inside it, a throw from the mail path would reach a catch whose only move
+     is ROLLBACK - on a transaction that has already committed. SQLite then
+     raises "cannot rollback - no transaction is active", and that is the error
+     the caller sees: the withdrawal succeeded, the money left the balance, and
+     the page reports a database fault. The notice is not part of the money
+     moving and does not belong in its transaction. */
+  try {
+    const mail = require('./mail');
+    mail.withdrawalRequested(userId, amount, netAmount, method, number);
+    if (committed.payoutMoved) {
+      mail.accountChanged(userId, 'Your payout account changed',
+        `Money now goes to ${name} - ${number}`);
+    }
+  } catch (err) {
+    // A withdrawal that happened is worth more than a notice that did not.
+    console.error('withdrawal notice:', err.message);
+  }
+
+  return committed.id;
 }
 
 /* Take it back, while nobody has acted on it yet.

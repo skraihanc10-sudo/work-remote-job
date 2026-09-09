@@ -443,6 +443,81 @@ function withdrawalSettled(userId, amount, ok, note) {
   });
 }
 
+/* Something on the account changed.
+
+   Sent for the changes somebody would want to know about even if they did not
+   make them - which is the whole point of a notice like this. If an account is
+   taken over, the first thing an attacker does is move the payout number, and
+   the owner finding out about it in their inbox is the only warning they get.
+
+   Marked security rather than an update for that reason: it goes out even to
+   somebody who switched announcements off, because it is not an announcement.
+*/
+function accountChanged(userId, what, detail, ip) {
+  const u = db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(userId);
+  if (!u) return null;
+  return queue({
+    userId, kind: 'security',
+    subject: `${what} - Remote Work BD`,
+    heading: what,
+    intro: 'This is a notice that something on your account changed. If it was you, '
+      + 'there is nothing to do.',
+    rows: [
+      ...(detail ? [['What changed', detail]] : []),
+      ['When', new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC'],
+      ...(ip ? [['From', ip]] : []),
+    ],
+    lines: [
+      'If this was not you, change your password now and contact support - somebody '
+      + 'else may have got into your account.',
+    ],
+    button: { label: 'Open your account', href: `${siteUrl()}/account` },
+  });
+}
+
+/* A receipt the moment a withdrawal is asked for, not only when it is paid.
+
+   The gap between asking and being paid is where a stolen account does its
+   damage: the money is requested, and the owner hears nothing until it has
+   gone. This closes that, and tells them they can still cancel it. */
+function withdrawalRequested(userId, amount, net, method, detail) {
+  const u = db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(userId);
+  if (!u) return null;
+  return queue({
+    userId, kind: 'withdrawal',
+    subject: `Withdrawal requested: ${money().fmt(amount)} - Remote Work BD`,
+    heading: 'Withdrawal requested',
+    intro: `${u.name}, we have your request and it is waiting to be paid.`,
+    rows: [
+      ['Amount', money().fmt(amount)],
+      ['You will receive', money().fmt(net)],
+      ['To', `${method}${detail ? ' - ' + detail : ''}`],
+    ],
+    lines: [
+      'It has already left your balance. You can cancel it yourself until an '
+      + 'administrator pays it, and the money goes straight back.',
+      'If you did not ask for this, cancel it and change your password immediately.',
+    ],
+    button: { label: 'See it in your wallet', href: `${siteUrl()}/wallet` },
+  });
+}
+
+// A buyer's job has passed its check and workers can see it.
+function jobApproved(merchantId, job) {
+  return queue({
+    userId: merchantId, kind: 'job_live',
+    subject: `Your job is live: ${job.title} - Remote Work BD`,
+    heading: 'Your job is live',
+    intro: 'An administrator has checked it, and workers can start on it now.',
+    rows: [
+      ['Job', job.title],
+      ['Pays', money().fmt(job.rate) + ' per task'],
+      ['Slots', String(job.slots)],
+    ],
+    button: { label: 'Open the job', href: `${siteUrl()}/merchant/jobs/${job.id}` },
+  });
+}
+
 function accountSuspended(userId, reason, until) {
   return queue({
     userId, kind: 'suspended',
@@ -489,6 +564,7 @@ module.exports = {
   unsubToken, checkUnsubToken,
   welcome, verifyEmail, resetPassword, passwordChanged, adminCode,
   taskSubmitted, taskApproved, taskRejected,
-  depositCredited, withdrawalSettled, accountSuspended,
+  depositCredited, withdrawalSettled, withdrawalRequested, accountSuspended,
+  accountChanged, jobApproved,
   broadcast,
 };

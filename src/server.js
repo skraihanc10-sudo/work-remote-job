@@ -2079,6 +2079,12 @@ app.get('/auth/google/callback', async (req, res) => {
     ]);
     audit(result.user.id, result.created ? 'signup' : 'login', `user:${result.user.id}`, null, req.ip);
 
+    /* A new account made through Google got no email at all - the welcome went
+       out only on the password path. Google has already proved the address, so
+       there is no code to send and nothing to confirm; what was missing was
+       the account existing and nobody being told. */
+    if (result.created) mail.welcome(result.user);
+
     if (result.created && result.user.role !== 'admin') return res.redirect('/welcome');
     const next = decodeURIComponent(jar.wrj_next || '');
     res.redirect(next.startsWith('/') ? next : '/');
@@ -3783,6 +3789,7 @@ app.post('/admin/jobs/:id/approve', need('admin'), (req, res) => {
   if (!job) return back(res, '/admin/jobs', 'That job is not waiting for approval.', 'fail');
   db.prepare("UPDATE jobs SET status = 'active', approved_at = datetime('now') WHERE id = ?").run(id);
   audit(req.user.id, 'job_approved', `job:${id}`, null, req.ip);
+  mail.jobApproved(job.merchant_id, job);
   back(res, '/admin/jobs?status=pending', 'Approved. It is live now.', 'ok');
 });
 
@@ -5972,6 +5979,9 @@ app.post('/account/role', need(), (req, res) => {
               WHERE user_id = ? AND status = 'pending'`).run(u.id);
 
   audit(u.id, 'role_switched', `user:${u.id}`, { from: u.role, to: want }, req.ip);
+  mail.accountChanged(u.id, 'Your account type changed',
+    `Switched from ${u.role === 'merchant' ? 'buyer' : 'worker'} to ${want === 'merchant' ? 'buyer' : 'worker'}`,
+    req.ip);
 
   back(res, want === 'merchant' ? '/merchant' : '/worker',
     want === 'merchant'
