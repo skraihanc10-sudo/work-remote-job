@@ -167,8 +167,25 @@ main.wrap { padding-top: 26px; padding-bottom: 70px; }
 .brand-mark svg { display: block; }
 
 /* The real lockup, sized by height so its own proportions decide the width. */
-.brand-pic { display: block; flex: none; }
 .brand-logo { display: block; height: 30px; width: auto; flex: none; }
+
+/* The logo on a dark ground.
+
+   One artwork is used everywhere - the supplied one - so on a dark header it
+   needs something to sit on rather than being recoloured. A white plate is how
+   a printed logo is placed on a dark page: the blue stays blue, the grey stays
+   grey, and nothing about the mark is altered.
+
+   Padding and radius are small on purpose. Enough to read as a deliberate
+   plate rather than a rectangle somebody forgot to make transparent. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .brand > .brand-logo {
+    background: #fff; padding: 5px 9px; border-radius: 9px;
+  }
+}
+:root[data-theme="dark"] .brand > .brand-logo {
+  background: #fff; padding: 5px 9px; border-radius: 9px;
+}
 .foot-mark .brand-logo { height: 32px; }
 @media (max-width: 900px) { .brand-logo { height: 26px; } }
 .brand-mark-img { display: block; width: 34px; height: 34px; object-fit: contain; flex: none; }

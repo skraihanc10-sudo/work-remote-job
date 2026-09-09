@@ -19,8 +19,6 @@ const esc = s => String(s == null ? '' : s)
 const fs = require('fs');
 const path = require('path');
 const LOGO = path.join(__dirname, '..', 'web', 'assets', 'logo.png');
-const LOGO_LIGHT = path.join(__dirname, '..', 'web', 'assets', 'logo-light.png');
-const LOGO_DARK = path.join(__dirname, '..', 'web', 'assets', 'logo-dark.png');
 const MARK = path.join(__dirname, '..', 'web', 'assets', 'mark.png');
 
 /* Stylesheet and script are cached for an hour, so without a version in the
@@ -56,35 +54,20 @@ const JS_V = assetVersion('app.js');
    It already contains the words, so the separate text beside it has to go, or
    the name appears twice.
 
-   `light` asks for the version that works on a dark ground. That used to be a
-   flat white silhouette, which meant the footer showed the shape of the logo
-   with none of its blue - the brand reduced to a stencil. logo-dark.png is the
-   supplied file with every blue pixel untouched and only the grey word lifted,
-   so it reads as the same logo wherever it sits.
+   One file, everywhere. There was a second version for dark backgrounds with
+   the grey half lifted to white, and it did not look like the logo - the two
+   words ended up different colours to each other and the whole thing read as
+   a cheap recolour. The supplied artwork is the artwork.
 
-   Both are emitted at once for the header: the browser picks by the reader's
-   theme, so a person switching to dark mode gets the right one immediately
-   rather than on the next page load, and neither is a recolour done in CSS -
-   they are two files, each exactly as intended.
+   Where it sits on a dark surface - the footer, and the header in dark mode -
+   it gets a white plate behind it instead, which is how a printed logo is
+   handled on a dark page. The colours stay exactly as drawn, and the mark
+   keeps its blue rather than being flattened into a silhouette.
 */
-function brandLockup(light) {
+function brandLockup() {
   if (!fs.existsSync(LOGO)) return null;
-  const onDark = fs.existsSync(LOGO_DARK) ? 'logo-dark.png'
-    : (fs.existsSync(LOGO_LIGHT) ? 'logo-light.png' : 'logo.png');
-
-  if (light) {
-    return `<img class="brand-logo" src="/assets/${onDark}?v=${assetVersion(onDark)}"
-      alt="${SITE}" width="600" height="162">`;
-  }
-
-  /* Two sources, one image. The picture element is the only way to swap the
-     file itself by theme; a CSS filter would have to alter the blue to fix
-     the grey, and the blue is not ours to change. */
-  return `<picture class="brand-pic">
-    <source srcset="/assets/${onDark}?v=${assetVersion(onDark)}" media="(prefers-color-scheme: dark)">
-    <img class="brand-logo" src="/assets/logo.png?v=${assetVersion('logo.png')}"
-      alt="${SITE}" width="600" height="162">
-  </picture>`;
+  return `<img class="brand-logo" src="/assets/logo.png?v=${assetVersion('logo.png')}"
+    alt="${SITE}" width="600" height="162">`;
 }
 
 function logoMark() {
@@ -409,7 +392,7 @@ ${verifyTags()}
 <header class="top${bare ? ' top-bare' : ''}">
   <div class="wrap top-inner">
     <a href="/" class="brand">
-      ${brandLockup(false)
+      ${brandLockup()
         || `${logoMark()}<span class="brand-name">Remote <b>Work BD</b></span>`}
     </a>
     ${bare ? '' : `<nav class="nav">${deskNav(user, active)}</nav>`}

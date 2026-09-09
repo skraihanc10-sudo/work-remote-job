@@ -104,10 +104,15 @@
   function go(i) {
     var n = (i + cells.length) % cells.length;
     track.scrollTo({ left: cells[n].offsetLeft, behavior: 'smooth' });
+    // Light the dot for where it is going, not where it still is. A smooth
+    // scroll takes a few hundred milliseconds, and a dot that only catches up
+    // afterwards looks like the press did not register - and if the next move
+    // begins before the scroll settles, it never catches up at all.
+    paint(n);
   }
 
-  function paint() {
-    var now = at();
+  function paint(index) {
+    var now = typeof index === 'number' ? index : at();
     for (var i = 0; i < dots.length; i++) {
       var on = i === now;
       dots[i].classList.toggle('on', on);
@@ -127,10 +132,12 @@
   // A touch of the strip means somebody is looking at it. Give them a while.
   function hold() { holdUntil = Date.now() + every * 2; }
 
+  // For a scroll the person did themselves: wait until it stops, then read
+  // where it landed. No argument, so it measures rather than assumes.
   var painting = null;
   track.addEventListener('scroll', function () {
     clearTimeout(painting);
-    painting = setTimeout(paint, 90);
+    painting = setTimeout(function () { paint(); }, 90);
   }, { passive: true });
 
   track.addEventListener('pointerdown', hold, { passive: true });
