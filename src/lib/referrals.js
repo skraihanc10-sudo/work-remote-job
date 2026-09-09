@@ -20,13 +20,43 @@ const crypto = require('crypto');
 const { db, numSetting, audit } = require('./db');
 const money = require('./money');
 
-// No 0/O/1/I/l - these get read aloud, written on paper and mistyped.
-const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+/* A short number, not a string of letters.
 
-function newCode() {
-  let out = '';
-  for (let i = 0; i < 7; i++) out += ALPHABET[crypto.randomInt(ALPHABET.length)];
-  return out;
+   Codes used to be seven characters of a reduced alphabet. Four digits is
+   what somebody can read off a screen, say down a phone, and type without
+   asking whether that was an O or a zero - which is the whole job of a
+   referral code.
+
+   1000 to 9999, so it is always four digits: no leading zeros to lose, and
+   nobody typing "42" for "0042".
+
+   Nine thousand codes is plenty now and a wall later, so the width grows
+   rather than the allocation failing. When four digits are crowded the next
+   person gets five, then six. Nobody notices until it matters, and the site
+   does not stop handing out codes on the day the nine-thousandth person asks
+   for one.
+*/
+function newCode(digits) {
+  const width = Math.max(4, Math.min(9, digits || 4));
+  const low = Math.pow(10, width - 1);
+  const high = Math.pow(10, width) - 1;
+  return String(crypto.randomInt(low, high + 1));
+}
+
+// How wide a code to hand out next. Steps up while the current width is more
+// than about two-thirds used, because random picking in a nearly full space
+// spends most of its time colliding.
+function nextWidth() {
+  for (let width = 4; width < 9; width++) {
+    const low = Math.pow(10, width - 1);
+    const high = Math.pow(10, width) - 1;
+    const room = high - low + 1;
+    const used = db.prepare(
+      'SELECT COUNT(*) AS n FROM users WHERE length(ref_code) = ?'
+    ).get(width).n;
+    if (used < room * 0.66) return width;
+  }
+  return 9;
 }
 
 /* Every account gets a code the first time one is asked for, rather than at
@@ -36,23 +66,44 @@ function codeFor(userId) {
   const row = db.prepare('SELECT ref_code FROM users WHERE id = ?').get(userId);
   if (row && row.ref_code) return row.ref_code;
 
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const code = newCode();
+  const width = nextWidth();
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const code = newCode(width);
     try {
       db.prepare('UPDATE users SET ref_code = ? WHERE id = ?').run(code, userId);
       return code;
     } catch (err) {
       if (!String(err.message).includes('UNIQUE')) throw err;
-      // Collision. Try again; with 31^7 codes this effectively never happens.
+      // Taken. Try another; the width above keeps this rare.
+    }
+  }
+  // Forty collisions at this width means it is fuller than the estimate
+  // thought. Widen and take the first free one rather than giving up.
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const code = newCode(width + 1);
+    try {
+      db.prepare('UPDATE users SET ref_code = ? WHERE id = ?').run(code, userId);
+      return code;
+    } catch (err) {
+      if (!String(err.message).includes('UNIQUE')) throw err;
     }
   }
   throw new Error('Could not allocate a referral code');
 }
 
+/* Find whoever owns a code.
+
+   Forgiving about how it arrives, because it gets typed by hand and pasted
+   out of messages: spaces and dashes come off, and letters are uppercased for
+   the older seven-character codes that are still in circulation. A digits-only
+   code is unaffected by the uppercasing, so one lookup serves both.
+*/
 function byCode(code) {
   if (!code) return null;
+  const clean = String(code).trim().replace(/[\s-]+/g, '').toUpperCase();
+  if (!clean) return null;
   return db.prepare('SELECT id, name, status FROM users WHERE ref_code = ?')
-    .get(String(code).trim().toUpperCase()) || null;
+    .get(clean) || null;
 }
 
 /* Link a new account to whoever referred them. Only ever at creation: letting
@@ -83,7 +134,13 @@ function referrerOf(userId) {
    either both happen or neither does. The unique index on (kind, source_id) is
    what makes a retry harmless - it throws, we ignore it, nobody is paid twice.
 */
-function reward({ kind, sourceId, referredId, basis }) {
+/* `basis` is the figure a percentage reward was worked out from, and it only
+   applies to the deposit reward. The task reward is a flat amount, so callers
+   pass nothing - which used to arrive as undefined and be handed straight to
+   SQLite, where it threw. That threw inside the approval transaction, so
+   approving work by anybody who had been referred failed outright, and the
+   only accounts affected were the referred ones. Zero, not undefined. */
+function reward({ kind, sourceId, referredId, basis = 0 }) {
   const referrerId = referrerOf(referredId);
   if (!referrerId) return null;
 
@@ -146,6 +203,45 @@ function reward({ kind, sourceId, referredId, basis }) {
   return { referrerId, amount };
 }
 
+/* Referrals that came from the referrer's own connection.
+
+   The fraud the warning on the referral page describes, made checkable: an
+   account signs up, makes a handful more from the same room, and points each
+   one at itself. Matching on signup_ip is deliberate - last_ip moves around
+   as people use the site, but where an account was *created* does not change,
+   and creation is the moment being gamed.
+
+   Reported rather than acted on. A family sharing one connection is the same
+   shape as a fraud, and suspending somebody for their brother signing up
+   would be worse than the fraud. This is a list for a person to look at.
+*/
+function sameConnection(referrerId) {
+  return db.prepare(`
+    SELECT u.id, u.name, u.email, u.status, u.created_at, u.signup_ip
+    FROM users u
+    JOIN users r ON r.id = u.referred_by
+    WHERE u.referred_by = ?
+      AND u.signup_ip IS NOT NULL
+      AND u.signup_ip = r.signup_ip
+    ORDER BY u.id DESC
+  `).all(referrerId);
+}
+
+// Everybody with at least one referral from their own connection, worst first.
+function suspicious(minShared = 1) {
+  return db.prepare(`
+    SELECT r.id, r.name, r.email, r.status, r.signup_ip,
+           COUNT(u.id) AS shared,
+           (SELECT COUNT(*) FROM users x WHERE x.referred_by = r.id) AS total
+    FROM users r
+    JOIN users u ON u.referred_by = r.id
+    WHERE u.signup_ip IS NOT NULL AND u.signup_ip = r.signup_ip
+    GROUP BY r.id
+    HAVING shared >= ?
+    ORDER BY shared DESC, total DESC
+  `).all(minShared);
+}
+
 function summary(userId) {
   const joined = db.prepare('SELECT COUNT(*) AS n FROM users WHERE referred_by = ?').get(userId).n;
   const earned = db.prepare(
@@ -175,4 +271,7 @@ function recentEarnings(userId, limit = 20) {
   `).all(userId, limit);
 }
 
-module.exports = { codeFor, byCode, attach, referrerOf, reward, summary, people, recentEarnings };
+module.exports = {
+  codeFor, byCode, attach, referrerOf, reward, summary, people, recentEarnings,
+  sameConnection, suspicious,
+};

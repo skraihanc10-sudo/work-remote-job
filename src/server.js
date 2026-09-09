@@ -1385,11 +1385,26 @@ function authPage(req, res, mode) {
   if (req.user) return res.redirect('/');
   const next = String(req.query.next || '');
   const want = req.query.want === 'merchant' ? 'merchant' : '';
+
+  /* A referral code arriving in the URL is written to the cookie here, not
+     only carried into the form.
+
+     Somebody sent a link and it was pasted rather than clicked, or clicked
+     and then the person went to Google - either way the code has to survive
+     a round trip through a page that does not exist yet. The /r/ link sets
+     this cookie already; this covers every other way a code arrives, which
+     is how a pasted ?ref= used to be lost the moment Google was chosen. */
+  const urlRef = String(req.query.ref || '').trim().slice(0, 12);
+  if (urlRef) {
+    res.setHeader('Set-Cookie',
+      `wrj_ref=${encodeURIComponent(urlRef)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000`);
+  }
+  const refNow = urlRef || String(cookies(req).wrj_ref || '');
   const nextField = next ? `<input type="hidden" name="next" value="${V.esc(next)}">` : '';
   const signup = mode === 'signup';
 
   const googleBtn = google.configured() ? `
-    <a class="google-btn" href="/auth/google?want=${V.esc(want)}${next ? '&next=' + encodeURIComponent(next) : ''}">
+    <a class="google-btn" href="/auth/google?want=${V.esc(want)}${next ? '&next=' + encodeURIComponent(next) : ''}${refNow ? '&ref=' + encodeURIComponent(refNow) : ''}">
       <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true">
         <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.2 17.7 9.5 24 9.5z"/>
         <path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.4-4.7 7l7.6 5.9c4.4-4.1 6.8-10.1 6.8-17.3z"/>
@@ -1482,7 +1497,7 @@ function authPage(req, res, mode) {
 
           <label for="a-ref">Referral code <em>optional</em></label>
           <input id="a-ref" name="ref" placeholder="If somebody invited you"
-                 value="${V.esc(req.query.ref || cookies(req).wrj_ref || '')}">
+                 value="${V.esc(refNow)}">
 
           <label for="a-pass">Password</label>
           <input id="a-pass" name="password" type="password" required minlength="8"
@@ -4165,6 +4180,9 @@ app.get('/admin/users/:id', need('admin'), (req, res) => {
     'SELECT * FROM reports WHERE against_id = ? ORDER BY id DESC LIMIT 10'
   ).all(id);
   const peers = u.last_ip ? auth.accountsOnIp(u.last_ip).filter(a => a.id !== id) : [];
+  // Referrals created on this person's own connection - the shape the warning
+  // on the referral page describes, so an admin can check the claim.
+  const sameConn = referrals.sameConnection(id);
   const logins = db.prepare(
     'SELECT ip, user_agent, created_at FROM logins WHERE user_id = ? ORDER BY id DESC LIMIT 10'
   ).all(id);
@@ -4383,6 +4401,24 @@ ${reportsAgainst.length ? `<div class="card">
         on this page, never on its own.</p></div>`
       : '<div class="pad muted">Nobody else has signed in from their address.</div>'}
   </div>
+
+  ${sameConn.length ? `<div class="card">
+    <div class="card-head"><h2>Referrals from their own connection</h2>
+      <span class="dim">${sameConn.length} of ${db.prepare('SELECT COUNT(*) AS n FROM users WHERE referred_by = ?').get(id).n}</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Account</th><th>Joined</th><th>State</th><th>Signed up from</th></tr></thead>
+      <tbody>${sameConn.map(x => `<tr>
+        <td><a class="link" href="/admin/users/${x.id}">${V.esc(x.name)}</a>
+          <div class="dim">${V.esc(x.email)}</div></td>
+        <td class="dim">${V.ago(x.created_at)}</td>
+        <td>${V.statusPill(x.status)}</td>
+        <td class="mono dim">${V.esc(x.signup_ip || '')}</td>
+      </tr>`).join('')}</tbody></table></div>
+    <div class="pad"><p class="fine">Accounts they invited that were created on the same
+      address as their own. One or two is a family or a shared phone; a row of them made
+      within minutes of each other is referral farming, and the referral page warns that
+      it costs every account involved. Read the sign-up times before deciding.</p></div>
+  </div>` : ''}
 </div>`,
   });
 });
@@ -6056,9 +6092,13 @@ app.get('/r/:code', (req, res) => {
   // anyone probe codes to find out which exist - the code is only checked when
   // an account is actually created, where an invalid one simply attaches
   // nobody.
+  const code = String(req.params.code).trim().slice(0, 12);
   res.setHeader('Set-Cookie',
-    `wrj_ref=${encodeURIComponent(String(req.params.code).slice(0, 12))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000`);
-  res.redirect('/login?want=worker');
+    `wrj_ref=${encodeURIComponent(code)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000`);
+  /* The code goes in the URL as well as the cookie. Belt and braces: a
+     browser with cookies blocked, or one that drops them across the trip to
+     Google, still arrives at a sign-up page that knows who invited them. */
+  res.redirect(`/signup?want=worker&ref=${encodeURIComponent(code)}`);
 });
 
 app.get('/referrals', need(), (req, res) => {
@@ -6091,8 +6131,22 @@ app.get('/referrals', need(), (req, res) => {
     <input type="text" id="ref-link" value="${V.esc(link)}" readonly onclick="this.select()">
     <button class="btn" type="button" id="ref-copy">Copy</button>
   </div>
-  <p class="muted">Your code is <b class="mono">${V.esc(code)}</b>. Anyone who signs in
-     through your link is linked to you permanently, on their first account only.</p>
+  <div class="ref-code">
+    <span>Your code</span>
+    <b class="mono" id="ref-code">${V.esc(code)}</b>
+    <span class="fine">Somebody can type this on the sign-up page instead of using the link.
+      <span class="bn">লিংক ছাড়াও সাইনআপের সময় এই নম্বরটা লিখে দিলেই হবে।</span></span>
+  </div>
+  <p class="muted">Anyone who signs up through your link &mdash; or types your code &mdash; is
+     linked to you permanently, on their first account only.</p>
+
+  <div class="alert alert-warn ref-warn">
+    <b>Real people only.</b> Every sign-up records the device's IP address. Accounts
+    created from the same connection to farm referrals are suspended &mdash; the invited
+    accounts and the one that invited them &mdash; and unpaid rewards are cancelled.<br>
+    <span class="bn">প্রতিটি সাইনআপে IP অ্যাড্রেস রাখা হয়। একই ইন্টারনেট সংযোগ থেকে ভুয়া
+      অ্যাকাউন্ট বানিয়ে রেফার করলে সবগুলো অ্যাকাউন্ট বন্ধ করে দেওয়া হবে এবং বোনাস বাতিল হবে।</span>
+  </div>
 </div>
 
 <div class="two">
@@ -6118,6 +6172,8 @@ app.get('/referrals', need(), (req, res) => {
       <li>Rewards are paid when the task is <b>approved</b> or the deposit clears &mdash;
         not when someone signs up.</li>
       <li>Nothing is paid on an account that gets closed for fraud.</li>
+      <li>Sign-up IP addresses are recorded and checked. Several accounts from one
+        connection is the pattern we look for.</li>
     </ul>
   </div>
 </div>
