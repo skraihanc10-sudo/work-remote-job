@@ -27,6 +27,7 @@ const stats = require('./lib/stats');
 const smtp = require('./lib/smtp');
 const apimail = require('./lib/apimail');
 const banners = require('./lib/banners');
+const boost = require('./lib/boost');
 const passwords = require('./lib/passwords');
 const quality = require('./lib/quality');
 const money = require('./lib/money');
@@ -451,22 +452,48 @@ function homeStats() {
   };
 }
 
-// Icons for the counter strip, drawn rather than loaded, so nothing here
-// depends on an image host and they inherit the colour around them.
-const COUNTER_ICONS = {
-  jobs: '<path d="M3 7h18v13H3z"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/>',
-  users: '<circle cx="9" cy="8" r="3"/><path d="M2 20a7 7 0 0 1 14 0"/><path d="M17 6a3 3 0 0 1 0 6"/><path d="M19 20a6 6 0 0 0-3-5"/>',
-  done: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/>',
-  paid: '<circle cx="12" cy="12" r="9"/><path d="M12 7v10"/><path d="M14.8 9.5c-.5-.9-1.6-1.3-2.8-1.3-1.6 0-2.6.8-2.6 1.9 0 2.7 5.6 1.4 5.6 4.2 0 1.2-1.1 2-2.9 2-1.3 0-2.4-.5-2.9-1.4"/>',
-};
+/* ====================================================================
+   The boost board.
 
-function counter(icon, value, label) {
-  return `<div class="counter">
-    <span class="counter-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${COUNTER_ICONS[icon]}</svg></span>
-    <b>${value}</b>
-    <span class="counter-label">${V.esc(label)}</span>
-  </div>`;
+   Where the visitor counters used to be. Those numbers - jobs posted, total
+   users, paid out - were the site talking about itself; this is the work
+   somebody came to find, with the jobs a buyer paid to put in front of them.
+
+   Empty means empty. No placeholder rows and no "0 boosted jobs" heading: on
+   a quiet day the section is simply not there, and the page closes up around
+   it rather than showing a gap with an explanation in it.
+   ==================================================================== */
+function boostBoard() {
+  let items;
+  try { items = boost.live(); } catch { return ''; }
+  if (!items.length) return '';
+
+  return `
+<section class="boosted">
+  <div class="wrap">
+    <div class="boosted-head">
+      <div>
+        <span class="boosted-flag">Top boost</span>
+        <h2>Urgent work, today</h2>
+        <p class="muted">Buyers paid to put these first. They usually need finishing
+          quickly. <span class="bn">এই কাজগুলো আজকের জন্য সবার উপরে &mdash; সাধারণত দ্রুত শেষ করতে হয়।</span></p>
+      </div>
+      <a class="link" href="/jobs">All jobs</a>
+    </div>
+
+    <div class="boost-grid">
+      ${items.map(b => `<a class="boost-card" href="/jobs/${b.job_id}">
+        <span class="boost-tag">Boosted</span>
+        <b class="boost-title">${V.esc(b.title)}</b>
+        <span class="boost-by">${V.esc(shortName(b.merchant_name))}</span>
+        <span class="boost-foot">
+          <span class="boost-pay">${V.money(b.rate)}</span>
+          <span class="boost-left">${Math.max(0, b.slots - b.slots_filled)} left</span>
+        </span>
+      </a>`).join('')}
+    </div>
+  </div>
+</section>`;
 }
 
 app.get('/', (req, res) => {
@@ -511,10 +538,11 @@ app.get('/', (req, res) => {
 <section class="hero2">
   <div class="hero2-copy">
     <h1>Microjobs and freelancing<br>to make money online</h1>
-    <p class="hero2-sub">Small gigs. Real payouts.
-      <span class="bn">ছোট ছোট কাজ, সত্যিকারের টাকা।</span></p>
-    <p class="hero2-line">Every job is funded before it goes live.
-      <span class="bn">কাজ পোস্ট হওয়ার আগেই টাকা জমা থাকে &mdash; তাই পেমেন্ট নিয়ে চিন্তা নেই।</span></p>
+    <p class="hero2-sub">Work from your phone. Get paid for every task you finish.
+      <span class="bn">ফোন দিয়েই কাজ করুন &mdash; প্রতিটি কাজের টাকা আপনার।</span></p>
+    <p class="hero2-line">The money for your work is set aside before you start, so
+      there is nothing to chase afterwards.
+      <span class="bn">কাজ শুরুর আগেই টাকা জমা রাখা থাকে &mdash; তাই টাকার জন্য কারও পেছনে ঘুরতে হবে না।</span></p>
     <a href="/login?want=worker" class="btn btn-lg">Earn money
       <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
         stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -522,16 +550,7 @@ app.get('/', (req, res) => {
   </div>
 </section>
 
-<section class="counters">
-  <div class="wrap counters-grid">
-    ${counter('jobs', s.jobs, 'Jobs posted')}
-    ${counter('users', s.users, 'Total users')}
-    ${counter('done', s.done, 'Tasks done')}
-    ${counter('paid', V.money(s.paid), 'Paid out')}
-  </div>
-  <p class="counters-note">Counted from our own records. Nothing on this page is
-     rounded up or invented.</p>
-</section>
+${boostBoard()}
 
 <section class="band">
   <div class="wrap">
@@ -663,6 +682,7 @@ function jobCard(j) {
   return `<a class="job-card" href="/jobs/${j.id}">
     <div class="job-top">
       <span class="tag">${V.esc(j.category || 'Task')}</span>
+      ${j.boost_id ? '<span class="tag tag-boost">Boosted</span>' : ''}
       <b class="rate">${V.money(j.rate)}</b>
     </div>
     <h3>${V.esc(j.title)}</h3>
@@ -682,11 +702,21 @@ app.get('/jobs', (req, res) => {
   if (cat) { where += ' AND j.category_id = ?'; args.push(cat); }
   if (q) { where += ' AND j.title LIKE ?'; args.push('%' + q + '%'); }
 
+  /* Boosted jobs first, and that is the whole thing a buyer paid for - a
+     boost that only showed on the home page would be worth very little, since
+     this is the page somebody browsing work actually spends time on.
+
+     Within the boosted group the order is who booked first; after that, newest
+     first as before. LEFT JOIN rather than a separate query so the ordering is
+     the database's job and cannot drift out of step with the list. */
   const jobs = db.prepare(`
-    SELECT j.*, c.name AS category FROM jobs j
+    SELECT j.*, c.name AS category, b.id AS boost_id FROM jobs j
     LEFT JOIN categories c ON c.id = j.category_id
-    WHERE ${where} ORDER BY j.id DESC LIMIT 100
-  `).all(...args);
+    LEFT JOIN boosts b ON b.job_id = j.id AND b.day = ?
+    WHERE ${where}
+    ORDER BY (b.id IS NULL), b.id, j.id DESC
+    LIMIT 100
+  `).all(boost.today(), ...args);
   const cats = db.prepare('SELECT * FROM categories ORDER BY name').all();
 
   send(req, res, {
@@ -2608,6 +2638,119 @@ app.post('/merchant/jobs/new', need('merchant'), active, upload.array('photos', 
   }
 });
 
+/* ====================================================================
+   Buying a top boost.
+
+   Five slots a day at a fixed price, paid from the balance the buyer already
+   funds jobs with, and live the moment it is paid - there is nothing for an
+   admin to approve, because there is nothing to judge. Either the day has a
+   slot or it does not.
+
+   When today is full the page says so and offers the next day that is not,
+   rather than a disabled button and no explanation. That is the whole
+   difference between a queue and a dead end.
+   ==================================================================== */
+function boostPanel(req, job) {
+  if (job.status === 'cancelled' || job.status === 'completed') return '';
+
+  const cal = boost.calendar(7);
+  const mine = boost.forJob(job.id);
+  const bookedDays = new Set(mine.map(b => b.day));
+  const cost = boost.fee();
+  const today = boost.today();
+  const live = job.status === 'active';
+
+  const dayLabel = d => {
+    if (d.isToday) return 'Today';
+    const t = new Date(d.day + 'T00:00:00Z');
+    return t.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  };
+
+  const options = cal.filter(d => !bookedDays.has(d.day));
+  const openDay = options.find(d => d.free > 0);
+
+  return `
+<div class="card pad boost-panel">
+  <div class="boost-head">
+    <div>
+      <h2>Top boost <span class="pill s-pending">${boost.feeUsdLabel()} a day</span></h2>
+      <p class="muted">Put this job at the top of the job list and on the home page for a
+        day. Only ${boost.slotsPerDay()} jobs can be boosted per day, so it is genuinely
+        near the top rather than one of a hundred.<br>
+        ${V.bn(`দিনে মাত্র ${boost.slotsPerDay()}টি কাজ বুস্ট করা যায়। বুস্ট করলে আপনার কাজটি সবার উপরে দেখাবে, তাই দ্রুত শেষ হয়।`)}</p>
+    </div>
+    <div class="boost-price"><b>${V.money(cost)}</b><span>per day</span></div>
+  </div>
+
+  ${mine.length ? `<div class="boost-mine">
+    ${mine.map(b => `<div class="boost-row">
+      <span><b>${b.day === today ? 'Boosted today' : 'Booked for ' + b.day}</b>
+        <span class="dim">${V.money(b.amount)}</span></span>
+      ${b.day > today ? `<form method="post" action="/merchant/jobs/${job.id}/boost/${b.id}/cancel"
+        onsubmit="return confirm('Cancel this boost? The fee comes back to your balance.')">
+        ${csrfField(req)}<button class="btn btn-ghost btn-sm" type="submit">Cancel</button></form>`
+      : '<span class="dim">running now</span>'}
+    </div>`).join('')}
+  </div>` : ''}
+
+  ${!live ? `<div class="alert alert-info">
+    ${job.approved_at ? 'Resume this job to boost it.'
+      : 'Once an admin approves this job you can boost it.'}
+  </div>`
+  : !options.length ? `<p class="fine">Every day this week is already booked for this job.</p>`
+  : `
+  <form method="post" action="/merchant/jobs/${job.id}/boost" class="boost-buy">
+    ${csrfField(req)}
+    <div class="field">
+      <label for="boost-day">Which day ${V.bn('কোন দিনের জন্য')}</label>
+      <select id="boost-day" name="day">
+        ${options.map(d => `<option value="${d.day}"${d.free === 0 ? ' disabled' : ''}${
+          openDay && d.day === openDay.day ? ' selected' : ''}>
+          ${dayLabel(d)} &mdash; ${d.free === 0 ? 'full' : `${d.free} of ${boost.slotsPerDay()} left`}
+        </option>`).join('')}
+      </select>
+    </div>
+    <button class="btn" type="submit"${openDay ? '' : ' disabled'}>Boost for ${V.money(cost)}</button>
+  </form>
+
+  ${cal[0].free === 0 ? `<div class="alert alert-warn">
+    <b>Today is full.</b> All ${boost.slotsPerDay()} slots for ${today} are taken.
+    ${openDay ? `The next day with room is <b>${dayLabel(openDay)}</b> &mdash; book it above and it
+      goes live at the start of that day.` : 'Every day this week is taken.'}
+    Need it sooner? <a href="/support">Talk to support</a>.<br>
+    ${V.bn(`আজকের ${boost.slotsPerDay()}টি স্লটই শেষ। ${openDay ? 'উপরে থেকে পরের দিনের জন্য বুক করুন।' : ''} জরুরি হলে সাপোর্টে যোগাযোগ করুন।`)}
+  </div>` : ''}
+  <p class="fine">Paid from your balance. Available now:
+    <b>${V.money(money.balance(req.user.id))}</b> &middot; <a href="/wallet">Add funds</a></p>`}
+</div>`;
+}
+
+app.post('/merchant/jobs/:id/boost', need('merchant'), active, (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    const r = boost.book(id, req.user.id, req.body.day);
+    audit(req.user.id, 'boost_bought', `job:${id}`, { day: r.day, amount: r.amount }, req.ip);
+    back(res, `/merchant/jobs/${id}`,
+      r.day === boost.today()
+        ? `Boosted. It is at the top of the list now.`
+        : `Booked for ${r.day}. It goes to the top at the start of that day.`,
+      'ok');
+  } catch (err) {
+    back(res, `/merchant/jobs/${id}`, err.message, 'fail');
+  }
+});
+
+app.post('/merchant/jobs/:id/boost/:boostId/cancel', need('merchant'), (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    const amount = boost.cancel(Number(req.params.boostId), req.user.id);
+    audit(req.user.id, 'boost_cancelled', `job:${id}`, { amount }, req.ip);
+    back(res, `/merchant/jobs/${id}`, `Cancelled. ${money.fmt(amount)} is back in your balance.`, 'ok');
+  } catch (err) {
+    back(res, `/merchant/jobs/${id}`, err.message, 'fail');
+  }
+});
+
 app.get('/merchant/jobs/:id', need('merchant'), (req, res) => {
   const job = db.prepare('SELECT * FROM jobs WHERE id = ? AND merchant_id = ?')
     .get(Number(req.params.id), req.user.id);
@@ -2639,6 +2782,8 @@ ${job.status === 'paused' && !job.approved_at ? `<div class="alert alert-info">
   usually done within a few hours.<br>
   ${V.bn('অ্যাডমিন এখনো চেক করেননি। ওয়ার্কাররা এখনো দেখতে পারছে না - সাধারণত কয়েক ঘণ্টার মধ্যে হয়ে যায়।')}
 </div>` : ''}
+
+${boostPanel(req, job)}
 
 <div class="stat-row">
   <div class="stat"><b>${V.money(e.held)}</b><span>funded</span></div>

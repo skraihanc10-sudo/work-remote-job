@@ -733,6 +733,37 @@ const MIGRATIONS = [
       CREATE INDEX idx_banners_order ON banners(active, sort, id);
     `,
   },
+  {
+    id: 13,
+    name: 'top boost - paid slots at the top of the list',
+    sql: `
+      /* A buyer pays to have one job sit at the top for a day.
+
+         A row per job per day, and the day is a plain date string in UTC so
+         "how many are booked for the 14th" is a count rather than a range
+         query over timestamps.
+
+         UNIQUE(day, job_id) stops the same job being boosted twice for the
+         same day - which would take two of that day's five slots and charge
+         twice for one position. The slot limit itself is a setting, checked
+         inside the same transaction that takes the money.
+
+         amount is what was actually charged, kept on the row rather than read
+         back from the setting: the price can change, and a receipt from March
+         has to still say what March cost. */
+      CREATE TABLE boosts (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id      INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        merchant_id INTEGER NOT NULL REFERENCES users(id),
+        day         TEXT NOT NULL,
+        amount      INTEGER NOT NULL,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (day, job_id)
+      );
+      CREATE INDEX idx_boosts_day ON boosts(day, id);
+      CREATE INDEX idx_boosts_job ON boosts(job_id);
+    `,
+  },
 ];
 
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (
@@ -786,6 +817,15 @@ const DEFAULTS = {
      crypto side is priced in dollars and quoting two different minimums for
      the same page only confuses people. 100 = $1.00. */
   min_deposit_usd: '100',
+
+  /* Top boost: a buyer pays to sit at the top of the list for one day.
+
+     Five a day, because the point is a short queue that is worth paying for -
+     twenty boosted jobs is just the job list again, and nobody would pay for
+     it. Priced in dollars to match the deposit figures buyers already see;
+     the charge is taken in local currency at usd_rate. */
+  boost_slots_per_day: '5',
+  boost_fee_usd: '100',
   // Referral rewards. Both are paid out of the platform's own commission, never
   // out of what the worker or the buyer receives - a scheme funded by shaving
   // somebody else's earnings is not a reward, it is a transfer.

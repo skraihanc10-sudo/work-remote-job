@@ -148,7 +148,7 @@ function navItems(user) {
       { href: '/payments', label: 'Payment proof', key: 'payments', tab: true, icon: 'cash' },
       { href: '/how-it-works', label: 'How it works', key: 'how' },
       { href: '/faq', label: 'Questions', key: 'faq' },
-      { href: '/login', label: 'Continue with Google', key: 'login', cta: true, tab: true, icon: 'user' },
+      { href: '/login', label: 'Login with Google', key: 'login', cta: true, tab: true, icon: 'user' },
     ];
   }
 
