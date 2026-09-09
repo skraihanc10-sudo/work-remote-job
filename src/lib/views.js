@@ -169,6 +169,11 @@ function navItems(user) {
   if (user.role === 'merchant') {
     return [
       { href: '/merchant', label: 'Dashboard', key: 'dash', tab: true, icon: 'grid' },
+      /* Buyers browse the same job list as everybody else. Seeing what other
+         people pay for a similar task is how you price your own, and hiding
+         it made the site feel like two separate products. Taking one is
+         refused, with an explanation, on the task itself. */
+      { href: '/jobs', label: 'Find work', key: 'jobs', tab: true, icon: 'search' },
       { href: '/merchant/jobs', label: 'My jobs', key: 'myjobs', tab: true, icon: 'list' },
       { href: '/merchant/review', label: 'Review work', short: 'Review', key: 'review', tab: true, icon: 'check' },
       { href: '/wallet', label: 'Wallet', key: 'wallet', tab: true, icon: 'cash' },

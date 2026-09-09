@@ -222,7 +222,17 @@ function safeNext(value) {
 function need(role) {
   return (req, res, next) => {
     if (!req.user) return res.redirect('/login?next=' + encodeURIComponent(req.originalUrl));
-    if (role && req.user.role !== role) return fail(res, 'That page is not for your account type.');
+    if (role && req.user.role !== role) {
+      /* A buyer trying to do a worker's thing is the one wrong-account case
+         with an obvious next step, so it gets one. "That page is not for your
+         account type" is true and useless; this says which account they need
+         and where to change it. */
+      if (role === 'worker' && req.user.role === 'merchant') {
+        return fail(res, 'Buyer accounts cannot take tasks. Switch to a worker account '
+          + 'from your Account page - it is immediate - and this will work.');
+      }
+      return fail(res, 'That page is not for your account type.');
+    }
     next();
   };
 }
@@ -497,8 +507,22 @@ function boostBoard() {
 }
 
 app.get('/', (req, res) => {
-  if (req.user) return res.redirect(req.user.role === 'admin' ? '/admin' :
-    req.user.role === 'merchant' ? '/merchant' : '/worker');
+  /* Signed in, and home is the work.
+
+     This used to drop people on their own dashboard, which is a page about
+     them - balances, counts, nothing to do. Somebody who opens the site is
+     looking for a task, so home is the job list and the dashboard is one
+     click away in the nav where they can go when they want it.
+
+     Buyers land there too. They are allowed to see what everybody else is
+     paying for - it is how you price your own job - and the task page tells
+     them plainly that taking one means switching to a worker account.
+
+     Admins still go to the admin dashboard: their job on this site is the
+     queue, not the tasks. */
+  if (req.user) {
+    return res.redirect(req.user.role === 'admin' ? '/admin' : '/jobs');
+  }
 
   const s = homeStats();
   const latest = db.prepare(`
@@ -755,8 +779,35 @@ app.get('/jobs/:id', (req, res) => {
 
   if (!req.user) {
     action = `<a href="/login?next=/jobs/${job.id}" class="btn btn-lg">Sign in to take this task</a>`;
+  } else if (req.user.role === 'merchant') {
+    /* A buyer looking at somebody else's task. They are welcome to read it -
+       that is how you learn what a task like yours is worth - but taking one
+       needs a worker account, and saying so with the button to do it is more
+       use than "only worker accounts can take tasks".
+
+       Whether they can switch right now is answered here rather than after
+       the click, because finding out you have three submissions to review is
+       something to know before you go looking for the setting. */
+    const blockers = switchBlockers(req.user);
+    action = blockers.length ? `
+      <div class="alert alert-warn">
+        <b>Switch to a worker account to take this task.</b>
+        You cannot switch yet:
+        <ul class="tight">${blockers.map(b => `<li>${V.esc(b)}</li>`).join('')}</ul>
+        <span class="bn">কাজটি করতে হলে worker অ্যাকাউন্টে যেতে হবে। আগে উপরের কাজগুলো শেষ করুন।</span>
+      </div>`
+    : `
+      <form method="post" action="/account/role" class="convert-here">
+        ${csrfField(req)}
+        <input type="hidden" name="role" value="worker">
+        <button class="btn btn-lg" type="submit">Switch to a worker account</button>
+      </form>
+      <p class="hint">Buyer accounts cannot take tasks. Switching is immediate and your
+         balance and history come with you &mdash; and you can switch back whenever you
+         have nothing outstanding.<br>
+         ${V.bn('বায়ার অ্যাকাউন্ট দিয়ে কাজ করা যায় না। এখনই worker-এ বদলে নিন - ব্যালেন্স ও হিসাব সব একই থাকবে, পরে আবার ফিরেও যেতে পারবেন।')}</p>`;
   } else if (req.user.role !== 'worker') {
-    action = `<p class="muted">Only worker accounts can take tasks.</p>`;
+    action = `<p class="muted">Admin accounts do not take tasks.</p>`;
   } else {
     const check = spam.canStart(req.user, job);
     action = check.allowed
@@ -5747,28 +5798,22 @@ app.get('/account', need(), (req, res) => {
       ? '<p class="muted">Post tasks, fund them up front, and review the proof that comes back. Your balance and history stay exactly as they are.</p>'
       : '<p class="muted">Do tasks yourself and get paid when a buyer approves them. Your balance and history stay exactly as they are.</p>'}
 
-    ${pending ? `
-      <div class="alert alert-warn">
-        <b>Your request is with an admin.</b>
-        Asked ${V.ago(pending.created_at)} to become a ${V.esc(pending.to_role)}.
-        You will get a notice here when it is decided.
-      </div>
-      <form method="post" action="/account/role/withdraw">${csrfField(req)}
-        <button class="btn btn-ghost btn-sm" type="submit">Withdraw the request</button></form>`
-    : blockers.length ? `
+    ${blockers.length ? `
       <div class="alert alert-warn">
         <b>Finish this first:</b>
         <ul class="tight">${blockers.map(b => `<li>${V.esc(b)}</li>`).join('')}</ul>
-        Switching now would leave other people waiting on you.
+        Switching now would leave somebody else waiting on you. Once this is clear
+        the switch happens straight away.<br>
+        ${V.bn('আগে এগুলো শেষ করুন - না হলে অন্য কেউ আপনার জন্য অপেক্ষায় থাকবে। শেষ হলেই সাথে সাথে বদলে যাবে।')}
       </div>`
     : `<form method="post" action="/account/role">
          ${csrfField(req)}
          <input type="hidden" name="role" value="${other}">
-         ${V.field({ label: 'Why do you want to switch?', name: 'reason', type: 'textarea', rows: 3,
-           required: true, hint: 'An admin reads this. A sentence or two is enough.' })}
-         <button class="btn" type="submit">Ask to become ${other === 'merchant' ? 'a buyer' : 'a worker'}</button>
+         <button class="btn" type="submit">Switch to ${other === 'merchant' ? 'buyer' : 'worker'} mode</button>
        </form>
-       <p class="fine">This is not automatic &mdash; an admin checks it first. Usually within a day.</p>`}
+       <p class="fine">Straight away, with no waiting for approval. You can switch back
+         whenever you have nothing outstanding.<br>
+         ${V.bn('সাথে সাথেই হয়ে যাবে - কারও অনুমতির অপেক্ষা করতে হবে না। কোনো কাজ বাকি না থাকলে আবার ফিরেও যেতে পারবেন।')}</p>`}
   </div>`}
 </div>
 
@@ -5857,6 +5902,19 @@ app.post('/account/email-prefs', need(), (req, res) => {
     'ok');
 });
 
+/* Switching between working and hiring.
+
+   Immediate, and no admin in the way. It used to be a request somebody read
+   and approved, which made a person wait a day to do the thing they had
+   already decided - and there was nothing to judge: the only question that
+   matters is whether they have work outstanding, and that is a query, not an
+   opinion.
+
+   The one rule is that nothing may be left hanging. A worker with a task
+   half-done, or a buyer with submissions waiting on their decision, would
+   walk away from an obligation somebody else is depending on - so the switch
+   is refused until their side is clear, with the specific thing named.
+*/
 app.post('/account/role', need(), (req, res) => {
   const u = req.user;
   if (u.role === 'admin') return fail(res, 'Admin accounts do not switch.');
@@ -5865,25 +5923,25 @@ app.post('/account/role', need(), (req, res) => {
   if (want === u.role) return back(res, '/account', 'That is already your account type.', 'info');
 
   const blockers = switchBlockers(u);
-  if (blockers.length) return fail(res, 'Finish this first: ' + blockers.join('; '));
-
-  const reason = String(req.body.reason || '').trim().slice(0, 500);
-  if (reason.length < 10) {
-    return fail(res, 'Tell us in a sentence or two why you want to switch. An admin reads it.');
+  if (blockers.length) {
+    return back(res, '/account#switch',
+      'Finish this first: ' + blockers.join('; ') + '.', 'fail');
   }
 
-  try {
-    db.prepare('INSERT INTO role_requests (user_id, from_role, to_role, reason) VALUES (?, ?, ?, ?)')
-      .run(u.id, u.role, want, reason);
-  } catch (err) {
-    if (String(err.message).includes('UNIQUE')) {
-      return back(res, '/account', 'You already have a request waiting.', 'info');
-    }
-    throw err;
-  }
+  db.prepare('UPDATE users SET role = ? WHERE id = ?').run(want, u.id);
 
-  audit(u.id, 'role_requested', `user:${u.id}`, { from: u.role, to: want }, req.ip);
-  back(res, '/account', 'Sent. An admin will look at it, usually within a day.', 'ok');
+  /* Any request they had sitting with an admin is closed off, so the account
+     page does not show a pending request for a change that has happened. */
+  db.prepare(`UPDATE role_requests SET status = 'withdrawn', reviewed_at = datetime('now')
+              WHERE user_id = ? AND status = 'pending'`).run(u.id);
+
+  audit(u.id, 'role_switched', `user:${u.id}`, { from: u.role, to: want }, req.ip);
+
+  back(res, want === 'merchant' ? '/merchant' : '/worker',
+    want === 'merchant'
+      ? 'You are a buyer now. Post a job and fund it, and workers can start on it once an admin checks it.'
+      : 'You are a worker now. Find a task and start earning.',
+    'ok');
 });
 
 app.post('/account/role/withdraw', need(), (req, res) => {
