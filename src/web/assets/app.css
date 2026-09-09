@@ -317,6 +317,27 @@ input:focus, select:focus, textarea:focus {
 .rate { font-family: var(--head); font-size: 17px; color: var(--green); }
 .job-card h3 { margin: 2px 0 0; font-size: 16px; }
 .job-foot { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); margin-top: auto; padding-top: 8px; }
+
+/* ------------------------------------------------- job cards on a phone
+
+   The desktop card was 166px tall on a 390px screen, of which about 100px was
+   content and the rest padding and gaps - so under five fitted on a screen and
+   choosing a task meant scrolling past the same amount of white space over and
+   over.
+
+   Tightened rather than stripped. What goes is the description, which was
+   clipped to one line and rarely said anything the title had not; what stays
+   is every fact somebody picks a task on - the category, the pay, how many
+   slots are left and how long it takes. */
+@media (max-width: 700px) {
+  .job-grid { grid-template-columns: 1fr; gap: 10px; }
+  .job-card { padding: 11px 13px; gap: 2px; border-radius: 9px; }
+  .job-card h3 { font-size: 14.5px; line-height: 1.35; margin: 0; }
+  .job-card > p { display: none; }
+  .tag { font-size: 10.5px; letter-spacing: .07em; }
+  .rate { font-size: 15.5px; }
+  .job-foot { font-size: 11.5px; padding-top: 5px; }
+}
 .pay { text-align: center; padding-bottom: 14px; border-bottom: 1px solid var(--line-soft); margin-bottom: 14px; }
 .pay b { display: block; font-family: var(--head); font-size: 30px; color: var(--green); }
 .pay span { font-size: 12.5px; color: var(--muted); }
